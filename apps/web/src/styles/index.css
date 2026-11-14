@@ -1,0 +1,335 @@
+@import 'tailwindcss';
+
+/*
+ * Webfront design tokens. Compact, data-rich, colourful.
+ *
+ * - Theme is class-based: <html class="dark"> (set before first paint by the inline script in
+ *   index.html and kept in sync by src/lib/theme.ts). `.light` / `.dark` on any element re-scope
+ *   the tokens (used by the /dev/ui gallery to show both themes side by side).
+ * - Semantic tokens (`--wf-bg`, `--wf-surface`, ...) are exposed to Tailwind as utilities below:
+ *   bg-bg, bg-surface, bg-surface-2, border-line, text-fg, text-fg-2, text-fg-3, bg-accent,
+ *   text-accent, bg-accent-soft, text-ok / warn / bad (+ bg-ok-soft ...).
+ * - The 12-colour palette is `--wf-<key>` (strong) and `--wf-<key>-soft` (tinted background).
+ *   Never build Tailwind class names from colour keys; use colourStyle() + bg-[var(--c-soft)].
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root,
+.light {
+  /* Surfaces: warm paper, crisp 1px lines */
+  --wf-bg: oklch(0.965 0.005 85);
+  --wf-surface: oklch(0.995 0.002 85);
+  --wf-surface-2: oklch(0.94 0.006 85);
+  --wf-surface-3: oklch(0.91 0.008 85);
+  --wf-line: oklch(0.885 0.008 85);
+  --wf-line-strong: oklch(0.79 0.01 85);
+  --wf-fg: oklch(0.23 0.02 275);
+  --wf-fg-2: oklch(0.41 0.018 275);
+  --wf-fg-3: oklch(0.5 0.016 275);
+  /* Accent: ultramarine */
+  --wf-accent: oklch(0.52 0.22 272);
+  --wf-accent-hover: oklch(0.46 0.22 272);
+  --wf-accent-fg: oklch(0.99 0.005 272);
+  --wf-accent-soft: oklch(0.935 0.04 272);
+  --wf-accent-text: oklch(0.45 0.2 272);
+  /* Status */
+  --wf-ok: oklch(0.55 0.15 150);
+  --wf-ok-soft: oklch(0.94 0.055 150);
+  --wf-ok-text: oklch(0.42 0.13 150);
+  --wf-warn: oklch(0.7 0.16 75);
+  --wf-warn-soft: oklch(0.95 0.06 85);
+  --wf-warn-text: oklch(0.48 0.12 65);
+  --wf-bad: oklch(0.57 0.21 25);
+  --wf-bad-soft: oklch(0.95 0.04 25);
+  --wf-bad-text: oklch(0.47 0.19 25);
+  --wf-overlay: oklch(0.2 0.03 275 / 0.45);
+  --wf-shadow: 0 1px 2px oklch(0.2 0.03 275 / 0.06), 0 6px 24px -4px oklch(0.2 0.03 275 / 0.16);
+  --wf-shadow-sm: 0 1px 2px oklch(0.2 0.03 275 / 0.08);
+  color-scheme: light;
+
+  --wf-red: oklch(0.6 0.18 25);
+  --wf-red-soft: oklch(0.945 0.05 25);
+  --wf-orange: oklch(0.6 0.18 50);
+  --wf-orange-soft: oklch(0.945 0.05 50);
+  --wf-amber: oklch(0.6 0.18 75);
+  --wf-amber-soft: oklch(0.945 0.05 75);
+  --wf-yellow: oklch(0.6 0.18 95);
+  --wf-yellow-soft: oklch(0.945 0.05 95);
+  --wf-lime: oklch(0.6 0.18 125);
+  --wf-lime-soft: oklch(0.945 0.05 125);
+  --wf-green: oklch(0.6 0.18 150);
+  --wf-green-soft: oklch(0.945 0.05 150);
+  --wf-teal: oklch(0.6 0.18 180);
+  --wf-teal-soft: oklch(0.945 0.05 180);
+  --wf-cyan: oklch(0.6 0.18 205);
+  --wf-cyan-soft: oklch(0.945 0.05 205);
+  --wf-blue: oklch(0.6 0.18 255);
+  --wf-blue-soft: oklch(0.945 0.05 255);
+  --wf-indigo: oklch(0.6 0.18 275);
+  --wf-indigo-soft: oklch(0.945 0.05 275);
+  --wf-violet: oklch(0.6 0.18 295);
+  --wf-violet-soft: oklch(0.945 0.05 295);
+  --wf-pink: oklch(0.6 0.18 350);
+  --wf-pink-soft: oklch(0.945 0.05 350);
+}
+
+.dark {
+  --wf-bg: oklch(0.155 0.014 275);
+  --wf-surface: oklch(0.2 0.015 275);
+  --wf-surface-2: oklch(0.245 0.016 275);
+  --wf-surface-3: oklch(0.285 0.017 275);
+  --wf-line: oklch(0.3 0.016 275);
+  --wf-line-strong: oklch(0.41 0.018 275);
+  --wf-fg: oklch(0.94 0.008 275);
+  --wf-fg-2: oklch(0.79 0.012 275);
+  --wf-fg-3: oklch(0.66 0.014 275);
+  --wf-accent: oklch(0.72 0.16 275);
+  --wf-accent-hover: oklch(0.78 0.14 275);
+  --wf-accent-fg: oklch(0.17 0.03 275);
+  --wf-accent-soft: oklch(0.31 0.08 275);
+  --wf-accent-text: oklch(0.8 0.12 275);
+  --wf-ok: oklch(0.74 0.16 150);
+  --wf-ok-soft: oklch(0.3 0.06 150);
+  --wf-ok-text: oklch(0.8 0.15 150);
+  --wf-warn: oklch(0.8 0.15 80);
+  --wf-warn-soft: oklch(0.32 0.065 80);
+  --wf-warn-text: oklch(0.85 0.13 85);
+  --wf-bad: oklch(0.7 0.18 25);
+  --wf-bad-soft: oklch(0.3 0.08 25);
+  --wf-bad-text: oklch(0.78 0.14 25);
+  --wf-overlay: oklch(0.08 0.02 275 / 0.62);
+  --wf-shadow: 0 1px 2px oklch(0 0 0 / 0.4), 0 8px 28px -4px oklch(0 0 0 / 0.55);
+  --wf-shadow-sm: 0 1px 2px oklch(0 0 0 / 0.4);
+  color-scheme: dark;
+
+  --wf-red: oklch(0.74 0.15 25);
+  --wf-red-soft: oklch(0.31 0.065 25);
+  --wf-orange: oklch(0.74 0.15 50);
+  --wf-orange-soft: oklch(0.31 0.065 50);
+  --wf-amber: oklch(0.74 0.15 75);
+  --wf-amber-soft: oklch(0.31 0.065 75);
+  --wf-yellow: oklch(0.74 0.15 95);
+  --wf-yellow-soft: oklch(0.31 0.065 95);
+  --wf-lime: oklch(0.74 0.15 125);
+  --wf-lime-soft: oklch(0.31 0.065 125);
+  --wf-green: oklch(0.74 0.15 150);
+  --wf-green-soft: oklch(0.31 0.065 150);
+  --wf-teal: oklch(0.74 0.15 180);
+  --wf-teal-soft: oklch(0.31 0.065 180);
+  --wf-cyan: oklch(0.74 0.15 205);
+  --wf-cyan-soft: oklch(0.31 0.065 205);
+  --wf-blue: oklch(0.74 0.15 255);
+  --wf-blue-soft: oklch(0.31 0.065 255);
+  --wf-indigo: oklch(0.74 0.15 275);
+  --wf-indigo-soft: oklch(0.31 0.065 275);
+  --wf-violet: oklch(0.74 0.15 295);
+  --wf-violet-soft: oklch(0.31 0.065 295);
+  --wf-pink: oklch(0.74 0.15 350);
+  --wf-pink-soft: oklch(0.31 0.065 350);
+}
+
+:root {
+  font-size: 13px;
+  /* Control and row heights. Compact on desktop, finger-sized on phones. */
+  --control-h: 26px;
+  --row-h: 24px;
+  --header-h: 38px;
+}
+@media (max-width: 639px) {
+  :root {
+    --control-h: 40px;
+    --row-h: 44px;
+    --header-h: 44px;
+  }
+}
+
+@theme inline {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI Variable Text', 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', 'Cascadia Mono', 'Segoe UI Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+
+  /* The root is 13px, so these are rem multiples of 13. */
+  --text-2xs: 0.77rem; /* 10px */
+  --text-2xs--line-height: 1.2;
+  --text-xs: 0.846rem; /* 11px */
+  --text-xs--line-height: 1.25;
+  --text-sm: 0.923rem; /* 12px */
+  --text-sm--line-height: 1.35;
+  --text-base: 1rem; /* 13px */
+  --text-base--line-height: 1.4;
+  --text-lg: 1.154rem; /* 15px */
+  --text-lg--line-height: 1.3;
+  --text-xl: 1.385rem; /* 18px */
+  --text-xl--line-height: 1.25;
+  --text-2xl: 1.692rem; /* 22px */
+  --text-2xl--line-height: 1.2;
+
+  /* Breakpoints in px: the 13px root would otherwise shrink the rem defaults (sm = 520px). */
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+
+  --color-bg: var(--wf-bg);
+  --color-surface: var(--wf-surface);
+  --color-surface-2: var(--wf-surface-2);
+  --color-surface-3: var(--wf-surface-3);
+  --color-line: var(--wf-line);
+  --color-line-strong: var(--wf-line-strong);
+  --color-fg: var(--wf-fg);
+  --color-fg-2: var(--wf-fg-2);
+  --color-fg-3: var(--wf-fg-3);
+  --color-accent: var(--wf-accent);
+  --color-accent-hover: var(--wf-accent-hover);
+  --color-accent-fg: var(--wf-accent-fg);
+  --color-accent-soft: var(--wf-accent-soft);
+  --color-accent-text: var(--wf-accent-text);
+  --color-ok: var(--wf-ok);
+  --color-ok-soft: var(--wf-ok-soft);
+  --color-ok-text: var(--wf-ok-text);
+  --color-warn: var(--wf-warn);
+  --color-warn-soft: var(--wf-warn-soft);
+  --color-warn-text: var(--wf-warn-text);
+  --color-bad: var(--wf-bad);
+  --color-bad-soft: var(--wf-bad-soft);
+  --color-bad-text: var(--wf-bad-text);
+  --color-overlay: var(--wf-overlay);
+  --shadow-pop: var(--wf-shadow);
+  --shadow-sm: var(--wf-shadow-sm);
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    scrollbar-width: thin;
+    scrollbar-color: var(--wf-line-strong) transparent;
+  }
+  body {
+    margin: 0;
+    background: var(--wf-bg);
+    color: var(--wf-fg);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overscroll-behavior-y: none;
+  }
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  summary,
+  select {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid var(--wf-accent);
+    outline-offset: 1px;
+  }
+  /* Text fields show focus with a border + ring instead of an outline. */
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline-offset: 0;
+  }
+  ::selection {
+    background: var(--wf-accent-soft);
+    color: var(--wf-fg);
+  }
+  a {
+    color: var(--wf-accent-text);
+  }
+  /* iOS zooms into inputs below 16px. */
+  @media (max-width: 639px) {
+    input,
+    textarea,
+    select {
+      font-size: 16px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* Safe-area helpers for the PWA on notched phones. */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  /* Micro-label used by panel headers and section titles. */
+  .label-caps {
+    font-size: var(--text-2xs);
+    font-weight: 650;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--wf-line-strong) transparent;
+  }
+}
+
+@keyframes wf-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes wf-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+@keyframes wf-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes wf-slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes wf-slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+}
+@keyframes wf-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes wf-shimmer {
+  to {
+    background-position-x: -200%;
+  }
+}
+@keyframes wf-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}

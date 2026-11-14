@@ -1,0 +1,10 @@
+node_modules
+dist
+dev-dist
+coverage
+data
+package-lock.json
+.claude
+docs/PLAN.md
+test-results
+playwright-report

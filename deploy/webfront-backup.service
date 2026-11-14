@@ -1,0 +1,23 @@
+[Unit]
+Description=Webfront nightly backup
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=webfront
+Group=webfront
+EnvironmentFile=/etc/webfront/webfront.env
+ExecStart=/opt/webfront/current/deploy/backup.sh
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+ProtectSystem=strict
+# Default backup dir is inside /var/lib/webfront. For a custom BACKUP_DIR, add a
+# drop-in:  systemctl edit webfront-backup.service
+#   [Service]
+#   ReadWritePaths=/mnt/backups
+ReadWritePaths=/var/lib/webfront
+ProtectHome=yes
+PrivateTmp=yes
+UMask=0077
+SyslogIdentifier=webfront-backup

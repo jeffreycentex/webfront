@@ -1,0 +1,196 @@
+/* Wiki reading view: compact Markdown typography on the design tokens (light and dark). */
+
+.wf-markdown {
+  color: var(--wf-fg);
+  font-size: 13.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.wf-markdown > :first-child {
+  margin-top: 0;
+}
+.wf-markdown :is(p, ul, ol, pre, table, blockquote, hr) {
+  margin: 0 0 0.7em;
+}
+.wf-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.1em 0 0.4em;
+  font-weight: 600;
+  line-height: 1.3;
+  scroll-margin-top: 12px;
+}
+.wf-markdown h1 {
+  font-size: 1.55em;
+}
+.wf-markdown h2 {
+  font-size: 1.3em;
+  padding-bottom: 0.15em;
+  border-bottom: 1px solid var(--wf-line);
+}
+.wf-markdown h3 {
+  font-size: 1.12em;
+}
+.wf-markdown :is(h4, h5, h6) {
+  font-size: 1em;
+  color: var(--wf-fg-2);
+}
+.wf-markdown :is(ul, ol) {
+  padding-left: 1.4em;
+}
+.wf-markdown ul {
+  list-style: disc;
+}
+.wf-markdown ol {
+  list-style: decimal;
+}
+.wf-markdown li > :is(ul, ol) {
+  margin-bottom: 0;
+}
+.wf-markdown li.task-item {
+  list-style: none;
+  margin-left: -1.2em;
+}
+.wf-markdown li.task-item input {
+  margin: 0 0.35em 0 0;
+  vertical-align: -1px;
+  accent-color: var(--wf-accent);
+}
+.wf-markdown a {
+  color: var(--wf-accent-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--wf-accent) 40%, transparent);
+  text-underline-offset: 2px;
+}
+.wf-markdown a:hover {
+  text-decoration-color: currentColor;
+}
+.wf-markdown a.wikilink {
+  text-decoration-style: solid;
+  background: color-mix(in oklab, var(--wf-accent-soft) 70%, transparent);
+  border-radius: 3px;
+  padding: 0 2px;
+  text-decoration: none;
+}
+.wf-markdown a.wikilink-missing {
+  color: var(--wf-bad-text);
+  background: none;
+  text-decoration: underline dashed;
+  text-decoration-color: var(--wf-bad);
+}
+.wf-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  background: var(--wf-surface-2);
+  border: 1px solid var(--wf-line);
+  border-radius: 4px;
+  padding: 0 3px;
+}
+.wf-markdown pre {
+  background: var(--wf-surface-2);
+  border: 1px solid var(--wf-line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  line-height: 1.45;
+}
+.wf-markdown pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 12.5px;
+}
+.wf-markdown .hl-keyword {
+  color: var(--wf-violet, var(--wf-accent));
+  font-weight: 600;
+}
+.wf-markdown .hl-string {
+  color: var(--wf-green, var(--wf-ok));
+}
+.wf-markdown .hl-number {
+  color: var(--wf-orange, var(--wf-warn));
+}
+.wf-markdown .hl-comment {
+  color: var(--wf-fg-3);
+  font-style: italic;
+}
+.wf-markdown blockquote {
+  border-left: 3px solid var(--wf-line-strong);
+  padding: 0.1em 0 0.1em 0.8em;
+  color: var(--wf-fg-2);
+}
+.wf-markdown table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.wf-markdown :is(th, td) {
+  border: 1px solid var(--wf-line);
+  padding: 2px 8px;
+  text-align: left;
+}
+.wf-markdown th {
+  background: var(--wf-surface-2);
+  font-weight: 600;
+}
+.wf-markdown tr:nth-child(even) td {
+  background: color-mix(in oklab, var(--wf-surface-2) 45%, transparent);
+}
+.wf-markdown hr {
+  border: 0;
+  border-top: 1px solid var(--wf-line);
+}
+.wf-markdown img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+.wf-markdown img[data-pending] {
+  outline: 2px dashed var(--wf-warn);
+  outline-offset: 2px;
+}
+
+/* CodeMirror host */
+.wf-editor .cm-editor {
+  height: 100%;
+  font-size: 13px;
+  background: var(--wf-surface);
+  color: var(--wf-fg);
+}
+.wf-editor .cm-editor.cm-focused {
+  outline: none;
+}
+.wf-editor .cm-scroller {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.55;
+}
+.wf-editor .cm-content {
+  padding: 8px 0;
+  caret-color: var(--wf-fg);
+}
+.wf-editor .cm-line {
+  padding: 0 10px;
+}
+.wf-editor .cm-activeLine {
+  background: color-mix(in oklab, var(--wf-surface-2) 60%, transparent);
+}
+.wf-editor .cm-selectionBackground,
+.wf-editor .cm-focused .cm-selectionBackground {
+  background: var(--wf-accent-soft) !important;
+}
+.wf-editor .cm-cursor {
+  border-left-color: var(--wf-fg);
+}
+.wf-editor .cm-placeholder {
+  color: var(--wf-fg-3);
+}
+.wf-editor .cm-tooltip {
+  background: var(--wf-surface);
+  border: 1px solid var(--wf-line-strong);
+  border-radius: 6px;
+  color: var(--wf-fg);
+  font-size: 12.5px;
+}
+.wf-editor .cm-tooltip-autocomplete ul li[aria-selected] {
+  background: var(--wf-accent);
+  color: var(--wf-accent-fg);
+}

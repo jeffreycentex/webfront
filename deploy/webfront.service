@@ -1,0 +1,60 @@
+# Webfront application server.
+# Installed to /etc/systemd/system/webfront.service by deploy/install.sh.
+#
+# Directives deliberately NOT used (they break V8 or do not work in an
+# unprivileged LXC): MemoryDenyWriteExecute (V8 JIT needs W+X pages),
+# PrivateUsers (nested user namespace), ProtectClock, ProtectKernelModules and
+# ProtectKernelLogs (they need capabilities an unprivileged LXC lacks). If the unit fails with status=226/NAMESPACE, enable
+# the container's "nesting" feature (Options > Features > Nesting in Proxmox).
+
+[Unit]
+Description=Webfront personal homepage
+Documentation=file:///opt/webfront/current/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=webfront
+Group=webfront
+WorkingDirectory=/opt/webfront/current
+EnvironmentFile=/etc/webfront/webfront.env
+ExecStart=/usr/local/bin/node /opt/webfront/current/apps/server/dist/index.js
+Restart=on-failure
+RestartSec=3
+# The server drains SSE streams and closes SQLite on SIGTERM (5 s hard stop).
+TimeoutStopSec=15
+KillSignal=SIGTERM
+
+# Sandboxing
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/webfront
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+# Resource ceiling sized for a 512 MB container.
+MemoryMax=400M
+TasksMax=256
+LimitNOFILE=4096
+
+# Logs go to the journal: journalctl -u webfront
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=webfront
+
+[Install]
+WantedBy=multi-user.target
