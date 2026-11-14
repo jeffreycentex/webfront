@@ -51,9 +51,9 @@ test('shopping quick add is reachable and adds with one tap', async ({ page }) =
   const box = await add.boundingBox();
   expect(box!.height).toBeGreaterThanOrEqual(40); // phone-sized touch target
   await add.tap();
-  await add.fill(`3 apples ${s}`);
+  await add.fill(`3 Apples ${s}`);
   await page.getByRole('button', { name: 'Add', exact: true }).first().tap();
-  const item = page.getByRole('checkbox', { name: new RegExp(`apples ${s}`) });
+  const item = page.getByRole('checkbox', { name: new RegExp(`^Apples ${s}`) });
   await expect(item).toBeVisible();
   await expect(item).toContainText('3');
   const itemBox = await item.boundingBox();

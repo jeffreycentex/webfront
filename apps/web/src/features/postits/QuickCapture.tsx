@@ -71,7 +71,7 @@ export function QuickCapture({
         }}
         className={cx(
           'max-h-40 min-h-(--control-h) flex-1 resize-none bg-surface/70',
-          phone && 'min-h-11 text-base',
+          phone && 'min-h-[44px] text-base',
         )}
       />
       <Popover
@@ -83,7 +83,7 @@ export function QuickCapture({
             size={compact ? 'sm' : 'md'}
             aria-label={`Note colour: ${colour}`}
             title="Note colour"
-            className={phone ? 'h-11 w-11 !px-0' : 'w-8 !px-0'}
+            className={phone ? 'h-[44px] w-[44px] !px-0' : 'w-8 !px-0'}
           >
             <ColourDot colour={colour} />
           </Button>
@@ -106,7 +106,7 @@ export function QuickCapture({
         size={compact ? 'sm' : 'md'}
         disabled={!text.trim()}
         onClick={() => void save()}
-        className={phone ? 'h-11' : ''}
+        className={phone ? 'h-[44px]' : ''}
       >
         Add
       </Button>

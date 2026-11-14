@@ -53,12 +53,17 @@ export function QuickAdd({
           }}
           placeholder="Add a task… try “pay rent tomorrow” or “call mum fri”"
           aria-label="New task"
-          className={cx('flex-1', phone && 'h-11 text-base')}
+          className={cx('flex-1', phone && 'h-[44px] text-base')}
           maxLength={200}
           autoComplete="off"
           enterKeyHint="done"
         />
-        <Button type="submit" variant="primary" disabled={!title} className={phone ? 'h-11' : ''}>
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={!title}
+          className={phone ? 'h-[44px]' : ''}
+        >
           <Plus className="size-3.5" aria-hidden /> Add
         </Button>
       </div>

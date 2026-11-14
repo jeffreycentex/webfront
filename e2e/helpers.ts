@@ -96,7 +96,14 @@ export async function waitSynced(page: Page, timeout = 30_000) {
 
 /** Navigate inside the app with the sidebar/tab bar (keeps the SPA and its sync loop alive). */
 export async function goTo(page: Page, label: string) {
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: label }).click();
+  const link = page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: label, exact: true });
+  await link.click();
+  // Routes are lazy: the old page stays on screen until the new chunk has loaded, and the URL
+  // and the active nav entry change in the same commit as the new page. Without this wait a
+  // locator can resolve against the old page (e.g. the dashboard's "New post-it" widget).
+  await expect(link).toHaveAttribute('aria-current', 'page');
 }
 
 /** Open a row's "…" menu and pick an item. */
@@ -130,10 +137,14 @@ export async function setWikiBody(page: Page, text: string) {
   await expect(page.getByRole('status').filter({ hasText: /^Saved$/ })).toBeVisible();
 }
 
-/** Create a wiki page through the "New page" dialog; lands in the editor. */
+/**
+ * Create a top-level wiki page through the "New wiki page" dialog; lands in the editor. Uses the
+ * page tree's "New top-level page" button (desktop), which exists whether or not the wiki is
+ * empty (the home view shows "Create a Home page" instead of "New page" when it is).
+ */
 export async function createWikiPage(page: Page, title: string) {
   await goTo(page, 'Wiki');
-  await page.getByRole('button', { name: 'New page' }).click();
+  await page.getByRole('button', { name: 'New top-level page' }).click();
   const dialog = page.getByRole('dialog', { name: 'New wiki page' });
   await dialog.getByLabel('Title').fill(title);
   await dialog.getByRole('button', { name: 'Create page' }).click();
@@ -149,14 +160,32 @@ export async function ensureShoppingList(page: Page, name: string): Promise<Loca
   // Wait for the lists to load (skeletons are aria-busy) before deciding to create one.
   await expect(page.getByRole('heading', { name: 'Shopping', level: 1 })).toBeVisible();
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
-  if (await panel.count()) return panel;
+  if (await panel.count()) {
+    await closeSuggestions(page);
+    return panel;
+  }
   if (await first.isVisible()) await first.click();
   else await page.getByRole('button', { name: 'New list' }).first().click();
   const dialog = page.getByRole('dialog', { name: 'New shopping list' });
   await dialog.getByLabel('Name').fill(name);
   await dialog.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByRole('region', { name })).toBeVisible();
+  await closeSuggestions(page);
   return page.getByRole('region', { name });
+}
+
+/**
+ * Move focus out of a shopping quick-add box. While it has focus it shows its "Suggestions"
+ * popup (favourites even for an empty box, by design), which covers the first rows of the
+ * list, so a click aimed at an item would land on a suggestion. A user clicks elsewhere first;
+ * the test does the same by blurring the box.
+ */
+export async function closeSuggestions(page: Page) {
+  await page.evaluate(() => {
+    const el = document.activeElement;
+    if (el instanceof HTMLElement && el.getAttribute('role') === 'combobox') el.blur();
+  });
+  await expect(page.getByRole('listbox', { name: 'Suggestions' })).toHaveCount(0);
 }
 
 /** Add a bookmark through the form. URLs should point at hosts that fail fast (no internet). */

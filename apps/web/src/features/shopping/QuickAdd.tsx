@@ -103,12 +103,12 @@ export function QuickAdd({
           enterKeyHint="enter"
           // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus={autoFocus}
-          className="max-sm:h-11 max-sm:text-base"
+          className="max-sm:h-[44px] max-sm:text-base"
         />
         <button
           type="submit"
           aria-label="Add"
-          className="inline-flex h-(--control-h) w-(--control-h) shrink-0 items-center justify-center rounded-md bg-accent text-accent-fg hover:bg-accent-hover max-sm:h-11 max-sm:w-11"
+          className="inline-flex h-(--control-h) w-(--control-h) shrink-0 items-center justify-center rounded-md bg-accent text-accent-fg hover:bg-accent-hover max-sm:h-[44px] max-sm:w-[44px]"
           // keep focus (and the phone keyboard) in the input
           onMouseDown={(e) => e.preventDefault()}
         >

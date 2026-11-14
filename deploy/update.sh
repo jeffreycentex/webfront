@@ -73,7 +73,8 @@ if [ -n "$TARBALL" ]; then
     tar -xzf "$TARBALL" -C "$REL"
   fi
 else
-  tar -C "$SRC" -cf - --exclude=node_modules --exclude=.git --exclude=./data \
+  tar -C "$SRC" -cf - --no-anchored --exclude=node_modules \
+    --anchored --exclude=./.git --exclude=./data --exclude=./test-results --exclude=./playwright-report \
     --exclude=./apps/web/dist --exclude=./apps/server/dist --exclude=./packages/shared/dist . \
     | tar -C "$REL" -xf -
 fi

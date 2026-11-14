@@ -6,7 +6,7 @@ coverage/
 .vite/
 
 # Runtime data (SQLite database, attachments) for local development
-data/
+/data/
 *.db
 *.db-shm
 *.db-wal

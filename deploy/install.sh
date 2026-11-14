@@ -128,7 +128,10 @@ if [ -n "$TARBALL" ]; then
     tar -xzf "$TARBALL" -C "$REL"
   fi
 else
-  tar -C "$SRC_DIR" -cf - --exclude=node_modules --exclude=.git --exclude=./data \
+  # node_modules is excluded at any depth; everything else only at the top level,
+  # so source folders that happen to be called "data" or "dist" are kept.
+  tar -C "$SRC_DIR" -cf - --no-anchored --exclude=node_modules \
+    --anchored --exclude=./.git --exclude=./data --exclude=./test-results --exclude=./playwright-report \
     --exclude=./apps/web/dist --exclude=./apps/server/dist --exclude=./packages/shared/dist . \
     | tar -C "$REL" -xf -
 fi

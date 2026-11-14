@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 import {
   addBookmark,
   createWikiPage,
+  closeSuggestions,
   ensureShoppingList,
   expandGroup,
   expect,
@@ -55,7 +56,13 @@ async function serverRecord(page: Page, collection: string, where: (r: Rec) => b
 /** Open a wiki page through the app's own navigation (works offline without a reload). */
 async function openWikiPage(page: Page, title: string) {
   await goTo(page, 'Wiki');
-  await page.getByRole('link', { name: title, exact: true }).first().click();
+  // Pages are tree items (not links) in the desktop page tree; click the title text, not the
+  // row's "New page inside …" button.
+  await page
+    .getByRole('tree', { name: 'Wiki pages' })
+    .getByRole('treeitem', { name: new RegExp(`^${title}`) })
+    .getByText(title, { exact: true })
+    .click();
   await expect(page.getByRole('heading', { name: title, level: 1 })).toBeVisible();
 }
 
@@ -81,6 +88,7 @@ async function addItem(page: Page, list: string, text: string) {
   await box.fill(text);
   await box.press('Enter');
   await expect(panel.getByRole('checkbox', { name: new RegExp(text) })).toBeVisible();
+  await closeSuggestions(page);
 }
 
 test('offline edits on one device and concurrent edits on another converge', async ({
@@ -96,7 +104,8 @@ test('offline edits on one device and concurrent edits on another converge', asy
     note: `Shared note ${s}`,
     task: `Shared task ${s}`,
     list: `Sync list ${s}`,
-    item: `shared item ${s}`,
+    // Capitalised: the app capitalises all-lower-case item names.
+    item: `Shared item ${s}`,
     wiki: `Shared page ${s}`,
   };
 
@@ -122,7 +131,9 @@ test('offline edits on one device and concurrent edits on another converge', asy
 
   /* ---- 2. A goes offline: adds new records and edits shared ones ---- */
   await a.context.setOffline(true);
-  await expect(a.page.getByRole('button', { name: /^Sync status: Offline/ })).toBeVisible();
+  // The header shows a separate "No network connection" status as soon as the browser goes
+  // offline; the sync button itself only changes on its next sync attempt.
+  await expect(a.page.getByRole('status', { name: 'No network connection' })).toBeVisible();
 
   await goTo(a.page, 'Bookmarks');
   await menu(a.page, `Actions for ${names.bookmark}`, 'Edit');
@@ -148,7 +159,7 @@ test('offline edits on one device and concurrent edits on another converge', asy
 
   const listA = await ensureShoppingList(a.page, names.list);
   await listA.getByRole('checkbox', { name: new RegExp(names.item) }).click();
-  await addItem(a.page, names.list, `offline item ${s}`);
+  await addItem(a.page, names.list, `Offline item ${s}`);
 
   // In-app navigation only while offline (a full page load would need the service worker).
   await openWikiPage(a.page, names.wiki);
@@ -167,7 +178,12 @@ test('offline edits on one device and concurrent edits on another converge', asy
   await postit(b.page, names.note).getByRole('button', { name: 'Pin', exact: true }).click();
 
   await goTo(b.page, 'Tasks');
-  await b.page.getByRole('checkbox', { name: `Complete ${names.task}` }).check();
+  // Completing relabels the checkbox and moves the row, so click (not `.check()`).
+  await b.page.getByRole('checkbox', { name: `Complete ${names.task}` }).click();
+  await expandGroup(b.page, 'Completed');
+  await expect(
+    b.page.getByRole('checkbox', { name: `Reopen ${names.task}`, exact: true }),
+  ).toBeChecked();
 
   const listB = await ensureShoppingList(b.page, names.list);
   await listB.getByRole('button', { name: `Edit ${names.item}` }).click();
@@ -210,7 +226,7 @@ test('offline edits on one device and concurrent edits on another converge', asy
     ['bookmarks', 'title', `Offline BM ${s}`],
     ['postits', 'text', `Offline note ${s}`],
     ['tasks', 'title', `Offline task ${s}`],
-    ['shoppingItems', 'name', `offline item ${s}`],
+    ['shoppingItems', 'name', `Offline item ${s}`],
   ] as const) {
     await serverRecord(a.page, collection, (r) => r[field] === value);
   }

@@ -4,6 +4,7 @@ import {
   BASE_B,
   addBookmark,
   createAccount,
+  closeSuggestions,
   createWikiPage,
   ensureShoppingList,
   expandGroup,
@@ -108,7 +109,9 @@ test('tasks: natural-language due date, complete, delete and undo', async ({ pag
   await expect(row).toContainText('Tomorrow');
   await expect(row.getByRole('button', { name: `pay rent ${s}`, exact: true })).toBeVisible();
 
-  await page.getByRole('checkbox', { name: `Complete pay rent ${s}` }).check();
+  // Completing moves the row into the collapsed "Completed" group and relabels its checkbox
+  // ("Reopen …"), so click rather than `.check()` and assert on the new row below.
+  await page.getByRole('checkbox', { name: `Complete pay rent ${s}` }).click();
   // Completed tasks collapse into their own group.
   await expandGroup(page, 'Completed');
   await expect(page.getByRole('checkbox', { name: `Reopen pay rent ${s}` })).toBeChecked();
@@ -127,13 +130,15 @@ test('shopping: quantity parsing, check off, clear checked and undo', async ({ p
   await add.press('Enter');
   await add.fill(`eggs ${s} x6`);
   await add.press('Enter');
+  await closeSuggestions(page);
 
-  const milk = list.getByRole('checkbox', { name: new RegExp(`oat milk ${s}`) });
-  const eggs = list.getByRole('checkbox', { name: new RegExp(`eggs ${s}`) });
+  const milk = list.getByRole('checkbox', { name: new RegExp(`^Oat milk ${s}`) });
+  const eggs = list.getByRole('checkbox', { name: new RegExp(`^Eggs ${s}`) });
   await expect(milk).toBeVisible();
-  // "2 oat milk" is stored as name "oat milk" with quantity 2.
+  // "2 oat milk" is stored as name "Oat milk" (all-lower-case input is capitalised) with
+  // quantity 2.
   await expect(milk).toContainText('2');
-  await expect(milk).not.toContainText(`2 oat milk`);
+  await expect(milk).not.toContainText(/2 oat milk/i);
   await expect(eggs).toContainText('6');
 
   // Checking an item moves it into the (collapsed) "In the trolley" group.
@@ -142,15 +147,15 @@ test('shopping: quantity parsing, check off, clear checked and undo', async ({ p
   await expandGroup(list, 'In the trolley');
   const trolley = list.getByRole('region', { name: 'In the trolley' });
   await expect(
-    trolley.getByRole('checkbox', { name: new RegExp(`oat milk ${s}`) }),
+    trolley.getByRole('checkbox', { name: new RegExp(`^Oat milk ${s}`) }),
   ).toHaveAttribute('aria-checked', 'true');
 
   await list.getByRole('button', { name: 'Clear checked' }).click();
-  await expect(list.getByRole('checkbox', { name: new RegExp(`oat milk ${s}`) })).toHaveCount(0);
+  await expect(list.getByRole('checkbox', { name: new RegExp(`^Oat milk ${s}`) })).toHaveCount(0);
   await expect(eggs).toBeVisible();
   await undo(page);
   await expandGroup(list, 'In the trolley');
-  await expect(list.getByRole('checkbox', { name: new RegExp(`oat milk ${s}`) })).toBeVisible();
+  await expect(list.getByRole('checkbox', { name: new RegExp(`^Oat milk ${s}`) })).toBeVisible();
 });
 
 test('wiki: create a page, a wiki link creates the target, the backlink appears', async ({
@@ -169,12 +174,16 @@ test('wiki: create a page, a wiki link creates the target, the backlink appears'
   await view.getByRole('link', { name: target }).click();
   await expect(page.getByRole('heading', { name: target, level: 1 })).toBeVisible();
   await expect(page).toHaveURL(/\/wiki\/e2e-target-/);
+  // A page created from a link opens in the editor...
+  await expect(wikiEditor(page)).toBeVisible();
 
+  // ...and backlinks ("Linked from") are part of the reading view.
+  await page.getByRole('button', { name: 'Read', exact: true }).click();
   const backlinks = page
     .locator('section')
-    .filter({ has: page.getByRole('heading', { name: /Linked from/ }) });
+    .filter({ has: page.getByRole('heading', { name: /Linked from/ }) })
+    .last(); // the innermost section (the panel), not an enclosing one
   await expect(backlinks.getByRole('link', { name: home })).toBeVisible();
-  await expect(wikiEditor(page)).toBeVisible();
 });
 
 test('calendar: an ICS feed from a local server shows its events in the agenda', async ({
