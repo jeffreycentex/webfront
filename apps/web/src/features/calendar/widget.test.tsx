@@ -99,4 +99,25 @@ describe('AgendaWidget', () => {
     expect(id).toBe('t2');
     expect(typeof changes.completedAt).toBe('string');
   });
+
+  it('rolls a recurring task forward instead of ending the series', async () => {
+    data.store.tasks = [
+      {
+        id: 'r1',
+        title: 'Water plants',
+        dueDate: '2026-11-14',
+        completedAt: null,
+        repeat: { unit: 'day', interval: 3, weekdays: [], day: null },
+        lastCompletedAt: null,
+        completionCount: 0,
+      },
+    ];
+    renderWidget();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Complete Water plants' }));
+    await waitFor(() => expect(data.patch).toHaveBeenCalled());
+    const changes = data.patch.mock.calls[0]![2];
+    expect(changes.dueDate).toBe('2026-11-17');
+    expect(changes.completedAt).toBeUndefined();
+    expect(changes.completionCount).toBe(1);
+  });
 });

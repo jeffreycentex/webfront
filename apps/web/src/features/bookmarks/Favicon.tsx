@@ -29,7 +29,7 @@ export function Favicon({
         aria-hidden
         style={colourStyle(colourForLabel(hostOf(url)))}
         className={cx(
-          'inline-flex size-4 shrink-0 items-center justify-center rounded-sm bg-[var(--c)] text-[10px] font-semibold leading-none text-white',
+          'inline-flex size-4 shrink-0 items-center justify-center rounded-sm border border-[color:var(--c)] bg-[var(--c-soft)] text-[10px] font-semibold leading-none text-fg',
           className,
         )}
       >

@@ -22,6 +22,10 @@ import {
   tcpConnect,
   type TcpConnect,
 } from './checker.js';
+import type { Observation } from './notifications/alerts.js';
+import { Notifier, type NotifierEnv } from './notifications/notifier.js';
+import { sendToPushover, type PushoverSend } from './notifications/pushover.js';
+import { notificationRoutes } from './notifications/routes.js';
 
 /**
  * Feature: services — owner: Task 5.
@@ -32,6 +36,13 @@ import {
  * something changed. Routes (auth required):
  *   POST /api/services/check-now    run a sweep immediately
  *   POST /api/services/check-links  dead-link check of bookmarks (body { ids? })
+ *   GET|PUT /api/services/notifications            Pushover alert settings (secrets masked)
+ *   DELETE  /api/services/notifications/credentials remove the saved token and user key
+ *   POST    /api/services/notifications/test        send a test notification
+ *
+ * After each sweep the confirmed states are handed to the Pushover notifier
+ * (notifications/alerts.ts has the alert rules); delivery runs in the background so the
+ * sweep never waits on Pushover.
  */
 
 export interface ServicesFeatureOptions {
@@ -44,6 +55,14 @@ export interface ServicesFeatureOptions {
   /** Maximum random delay added to each interval and before each probe. */
   jitterMs?: number;
   concurrency?: number;
+  /** Pushover transport (tests inject a fake; default: HTTPS to api.pushover.net). */
+  pushoverSend?: PushoverSend;
+  /** Delay between delivery retries (tests inject an instant one). */
+  sleep?: (ms: number) => Promise<void>;
+  /** Credential overrides (default: process.env PUSHOVER_APP_TOKEN / PUSHOVER_USER_KEY). */
+  env?: NotifierEnv;
+  /** Receives the notifier (tests use it to await deliveries). */
+  onNotifier?: (notifier: Notifier) => void;
 }
 
 type Bookmark = RecordOf<'bookmarks'>;
@@ -61,6 +80,23 @@ export function createServicesFeature(options: ServicesFeatureOptions = {}) {
     const failures = new Map<string, number>();
     let running: Promise<number> | null = null;
     let closed = false;
+
+    const notifier = new Notifier({
+      db: ctx.db,
+      logger: log.child({ component: 'notifications' }),
+      now,
+      send: options.pushoverSend ?? sendToPushover,
+      sleep:
+        options.sleep ??
+        ((ms) =>
+          new Promise<void>((r) => {
+            const t = setTimeout(r, ms);
+            t.unref?.();
+          })),
+      env: options.env ?? process.env,
+    });
+    ctx.onClose(() => notifier.close());
+    options.onNotifier?.(notifier);
 
     const sleep = (ms: number) =>
       ms > 0 ? new Promise<void>((r) => setTimeout(r, ms)) : Promise.resolve();
@@ -89,6 +125,7 @@ export function createServicesFeature(options: ServicesFeatureOptions = {}) {
       });
 
       const t = now();
+      const observations: Observation[] = [];
       const writes: Array<{
         id: string;
         fields: Partial<FieldsOf<'serviceStatuses'>> & { deleted?: boolean };
@@ -97,6 +134,13 @@ export function createServicesFeature(options: ServicesFeatureOptions = {}) {
         if (!r) continue;
         const prev = statuses.get(r.b.id);
         const d = decideWrite(prev, r.result, r.n, t);
+        if (d.state === 'up' || d.state === 'down') {
+          observations.push({
+            bookmark: r.b,
+            state: d.state,
+            reason: d.state === 'down' ? (r.result.message ?? prev?.message ?? null) : null,
+          });
+        }
         if (!d.write) continue;
         writes.push({
           id: r.b.id,
@@ -119,6 +163,13 @@ export function createServicesFeature(options: ServicesFeatureOptions = {}) {
         }
       }
       if (writes.length > 0) ctx.records.writeAsServer('serviceStatuses', writes);
+      if (!closed) {
+        try {
+          notifier.onSweep(observations, wanted);
+        } catch (err) {
+          log.warn('service alert evaluation failed', { err });
+        }
+      }
       return bookmarks.length;
     }
 
@@ -179,6 +230,8 @@ export function createServicesFeature(options: ServicesFeatureOptions = {}) {
         );
       },
     );
+
+    r.route('/notifications', notificationRoutes(ctx, notifier));
 
     app.route('/api/services', r);
   };

@@ -37,6 +37,12 @@ export default defineFeature({
       run: ({ navigate }) => navigate('/shopping?add=1'),
     },
     {
+      id: 'shopping.staples',
+      title: 'Add staples to shopping list',
+      keywords: ['shopping', 'staples', 'regulars', 'restock', 'groceries'],
+      run: ({ navigate }) => navigate('/shopping?staples=1'),
+    },
+    {
       id: 'shopping.newList',
       title: 'New shopping list',
       keywords: ['shopping', 'list', 'create'],

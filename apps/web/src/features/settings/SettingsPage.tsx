@@ -8,6 +8,7 @@ const AccountSection = lazy(() => import('./AccountSection'));
 const AppearanceSection = lazy(() => import('./AppearanceSection'));
 const SearchSection = lazy(() => import('./SearchSection'));
 const SecuritySection = lazy(() => import('./SecuritySection'));
+const NotificationsSection = lazy(() => import('./NotificationsSection'));
 const DataSection = lazy(() => import('./DataSection'));
 const AboutSection = lazy(() => import('./AboutSection'));
 
@@ -30,6 +31,12 @@ const BEFORE: Entry[] = [
   },
 ];
 const AFTER: Entry[] = [
+  {
+    id: 'notifications',
+    title: 'Notifications',
+    component: NotificationsSection,
+    colour: 'red',
+  },
   { id: 'data', title: 'Data', component: DataSection, colour: 'green' },
   { id: 'about', title: 'About', component: AboutSection, colour: null },
 ];

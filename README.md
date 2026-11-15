@@ -56,6 +56,8 @@ It installs Node 22 (checksum-verified from nodejs.org), creates the locked-down
 
 Environment written to `/etc/webfront/webfront.env`: `NODE_ENV=production`, `HOST=127.0.0.1`, `PORT=8787`, `DATA_DIR=/var/lib/webfront`, `WEB_DIST_DIR`, `LOG_LEVEL=info`, `TRUST_PROXY=true`, `PUBLIC_ORIGIN`.
 
+Optional: `PUSHOVER_APP_TOKEN` and `PUSHOVER_USER_KEY` (30 letters and digits each) for service outage alerts. Usually you enter these in Settings, Notifications instead, where they are stored in the server's database (and therefore in backups). Values in the env file take precedence, are never written to the database, and show as "set in the server's env file" in Settings; restart the service after changing them. See "Pushover notifications" in `docs/SECURITY.md` for what is sent to Pushover.
+
 ### 4. Tailscale
 
 ```
@@ -80,6 +82,10 @@ Install the Tailscale client and sign in to the same tailnet on each device firs
 
 - **Home page:** Chrome/Edge: Settings, Appearance (or On startup), set the home page to your Webfront address and show the Home button. Firefox: Settings, Home, Custom URLs.
 - **New tab:** browsers cannot point the new-tab page at a URL natively. Chrome and Edge: use a small "new tab redirect" extension and set it to your address; Firefox: a "new tab override" add-on. Alternatively install the PWA and pin it, and use the in-app search bar.
+
+### 8. Phone alerts for service outages (optional)
+
+Webfront can notify your phone through [Pushover](https://pushover.net) when a service bookmark goes down and when it recovers. In Pushover, create an application (any name, e.g. "Webfront") to get an API token, and copy your user key from the Pushover dashboard. Enter both in Settings, Notifications, turn alerts on, save, and press **Send test**. A service counts as down after two failed checks in a row; alerts fire once per change, several services failing together produce one message, and nothing is sent for services that were already down when they were first checked. The container needs outbound HTTPS to `api.pushover.net`.
 
 ## Backup, restore, update
 

@@ -1,7 +1,24 @@
 import type { LinkCheckResult } from '@webfront/shared';
 import { safeHttpUrl } from '@webfront/shared';
-import { Bookmark as BookmarkIcon, FolderPlus, Link2Off, Plus, Search, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  Bookmark as BookmarkIcon,
+  FolderPlus,
+  Link2Off,
+  Plus,
+  Search,
+  Upload,
+  X,
+} from 'lucide-react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 import { useSearchParams } from 'react-router';
 import {
   Button,
@@ -36,6 +53,8 @@ import {
 } from './model';
 import { loadCollapsed, saveCollapsed } from './storage';
 
+const ImportDialog = lazy(() => import('./import/ImportDialog'));
+
 type BookmarkFormState = {
   bookmark: Bookmark | null;
   defaults?: { url?: string; categoryId?: string | null };
@@ -62,6 +81,7 @@ export function BookmarksPage() {
   const [bookmarkForm, setBookmarkForm] = useState<BookmarkFormState | null>(null);
   const [categoryForm, setCategoryForm] = useState<CategoryFormState | null>(null);
   const [detailsId, setDetailsId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const [moving, setMoving] = useState<Bookmark | null>(null);
   const [deletingCategory, setDeletingCategory] = useState<Category | null>(null);
   const [collapsed, setCollapsed] = useState(loadCollapsed);
@@ -94,7 +114,7 @@ export function BookmarksPage() {
   }, [activeId, cursor]);
 
   const overlayOpen = Boolean(
-    bookmarkForm || categoryForm || detailsId || moving || deletingCategory,
+    bookmarkForm || categoryForm || detailsId || moving || deletingCategory || importing,
   );
 
   const step = useCallback(
@@ -163,7 +183,9 @@ export function BookmarksPage() {
   useEffect(() => {
     const what = params.get('new');
     const check = params.get('check');
-    if (!what && !check) return;
+    const imp = params.get('import');
+    if (!what && !check && !imp) return;
+    if (imp) setImporting(true);
     if (what === 'bookmark') setBookmarkForm({ bookmark: null });
     else if (what === 'category') setCategoryForm({ category: null });
     if (check) void runCheck();
@@ -244,6 +266,9 @@ export function BookmarksPage() {
             <Button size="sm" onClick={() => setCategoryForm({ category: null })}>
               <FolderPlus aria-hidden className="size-3.5" /> Category
             </Button>
+            <Button size="sm" aria-label="Import from browser" onClick={() => setImporting(true)}>
+              <Upload aria-hidden className="size-3.5" /> Import
+            </Button>
             <Button size="sm" variant="primary" onClick={() => setBookmarkForm({ bookmark: null })}>
               <Plus aria-hidden className="size-3.5" /> Bookmark
             </Button>
@@ -315,6 +340,7 @@ export function BookmarksPage() {
                 <FolderPlus aria-hidden className="size-3.5" /> Add your first category
               </Button>
               <Button onClick={() => setBookmarkForm({ bookmark: null })}>Add a bookmark</Button>
+              <Button onClick={() => setImporting(true)}>Import from browser…</Button>
             </span>
           }
         >
@@ -348,6 +374,11 @@ export function BookmarksPage() {
         />
       )}
 
+      {importing && (
+        <Suspense fallback={null}>
+          <ImportDialog open onClose={() => setImporting(false)} />
+        </Suspense>
+      )}
       <BookmarkForm
         open={bookmarkForm !== null}
         onClose={() => setBookmarkForm(null)}

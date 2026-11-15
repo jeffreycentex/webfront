@@ -91,6 +91,20 @@ const WEEKDAYS: Record<string, number> = {
   saturday: 6,
 };
 
+/** Weekday number (0 = Sunday) for a typed word ("fri", "friday", "fridays"), or null. */
+export function weekdayFromWord(word: string): number | null {
+  const w = word.toLowerCase();
+  if (w in WEEKDAYS) return WEEKDAYS[w]!;
+  if (w.endsWith('s') && w.slice(0, -1) in WEEKDAYS) return WEEKDAYS[w.slice(0, -1)]!;
+  return null;
+}
+
+/** Number for a digit string or a small number word ("3", "three"), or null. */
+export function numberFromWord(word: string): number | null {
+  if (/^\d{1,3}$/.test(word)) return Number(word);
+  return NUMBER_WORDS[word.toLowerCase()] ?? null;
+}
+
 const MONTHS: Record<string, number> = {
   jan: 1,
   january: 1,
@@ -150,7 +164,7 @@ const NUMBER_WORDS: Record<string, number> = {
 };
 
 /** Monday of the week containing `iso` (weeks run Monday to Sunday). */
-function weekStart(iso: ISODate): ISODate {
+export function weekStart(iso: ISODate): ISODate {
   return addDays(iso, -((weekdayOf(iso) + 6) % 7));
 }
 
@@ -286,7 +300,7 @@ export function parseTaskInput(input: string, today: ISODate): ParsedTask {
   return none;
 }
 
-const SHORT_MONTHS = [
+export const SHORT_MONTHS = [
   'Jan',
   'Feb',
   'Mar',
@@ -300,7 +314,7 @@ const SHORT_MONTHS = [
   'Nov',
   'Dec',
 ];
-const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+export const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 /** "Nov 20" (adds the year when it is not the current one). */
 export function formatShortDate(iso: ISODate, today: ISODate): string {

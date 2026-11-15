@@ -10,6 +10,7 @@ import { bookmarkSearchProvider } from './search';
 const BookmarksWidget = lazy(() => import('./BookmarksWidget'));
 const ServicesWidget = lazy(() => import('./ServicesWidget'));
 const BookmarkletSettings = lazy(() => import('./BookmarkletSettings'));
+const ImportSettings = lazy(() => import('./import/ImportSettings'));
 
 export default defineFeature({
   id: 'bookmarks',
@@ -45,6 +46,12 @@ export default defineFeature({
       order: 40,
       component: BookmarkletSettings,
     },
+    {
+      id: 'bookmark-import',
+      title: 'Import bookmarks from a browser',
+      order: 41,
+      component: ImportSettings,
+    },
   ],
   commands: [
     {
@@ -58,6 +65,12 @@ export default defineFeature({
       title: 'New bookmark category',
       keywords: ['add', 'folder', 'group'],
       run: ({ navigate }) => void navigate('/bookmarks?new=category'),
+    },
+    {
+      id: 'bookmarks.import',
+      title: 'Import bookmarks from browser…',
+      keywords: ['chrome', 'firefox', 'safari', 'edge', 'html', 'export', 'migrate'],
+      run: ({ navigate }) => void navigate('/bookmarks?import=1'),
     },
     {
       id: 'bookmarks.checkLinks',

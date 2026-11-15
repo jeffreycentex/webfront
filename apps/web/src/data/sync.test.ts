@@ -67,7 +67,17 @@ describe('local writes', () => {
     expect(ob).toHaveLength(1);
     expect(ob[0]).toMatchObject({ collection: 'tasks', id: rec.id, createdAt: rec.createdAt });
     expect(Object.keys(ob[0]!.fields).sort()).toEqual(
-      ['completedAt', 'deleted', 'dueDate', 'notes', 'sortKey', 'title'].sort(),
+      [
+        'completedAt',
+        'completionCount',
+        'deleted',
+        'dueDate',
+        'lastCompletedAt',
+        'notes',
+        'repeat',
+        'sortKey',
+        'title',
+      ].sort(),
     );
     for (const [k, fc] of Object.entries(ob[0]!.fields)) {
       expect(fc.hlc).toBe(rec.clocks[k]);

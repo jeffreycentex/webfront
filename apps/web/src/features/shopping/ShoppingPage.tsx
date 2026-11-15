@@ -60,6 +60,7 @@ export function ShoppingPage() {
   const [settingsId, setSettingsId] = useState<string | null>(null);
   const [shopping, setShopping] = useState(false);
   const [focusToken, setFocusToken] = useState(0);
+  const [staplesToken, setStaplesToken] = useState(0);
 
   useWakeLock(shopping && phone);
 
@@ -67,13 +68,15 @@ export function ShoppingPage() {
   const listParam = params.get('list');
   const addParam = params.get('add');
   const newParam = params.get('new');
+  const staplesParam = params.get('staples');
   useEffect(() => {
-    if (!listParam && !addParam && !newParam) return;
+    if (!listParam && !addParam && !newParam && !staplesParam) return;
     if (listParam) select(listParam);
     if (addParam) setFocusToken((n) => n + 1);
     if (newParam) setNewOpen(true);
+    if (staplesParam) setStaplesToken((n) => n + 1);
     setParams({}, { replace: true });
-  }, [listParam, addParam, newParam, select, setParams]);
+  }, [listParam, addParam, newParam, staplesParam, select, setParams]);
 
   const settingsList = lists?.find((l) => l.id === settingsId) ?? null;
   const settingsIndex = settingsList ? lists!.findIndex((l) => l.id === settingsList.id) : -1;
@@ -157,6 +160,7 @@ export function ShoppingPage() {
               onShoppingChange={setShopping}
               onSettings={(l) => setSettingsId(l.id)}
               focusToken={focusToken}
+              staplesToken={staplesToken}
             />
           )}
         </>
@@ -169,7 +173,7 @@ export function ShoppingPage() {
                 history={history}
                 phone={false}
                 onSettings={(x) => setSettingsId(x.id)}
-                {...(l.id === active?.id ? { focusToken } : {})}
+                {...(l.id === active?.id ? { focusToken, staplesToken } : {})}
               />
             </div>
           ))}

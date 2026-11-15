@@ -1,11 +1,23 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlignLeft, Trash2 } from 'lucide-react';
+import { AlignLeft, MoreHorizontal, Repeat, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { patch } from '@/data';
-import { Badge, Checkbox, cx, DragHandle, IconButton, Input, Textarea } from '@/ui';
+import {
+  Badge,
+  Checkbox,
+  cx,
+  DragHandle,
+  DropdownMenu,
+  IconButton,
+  Input,
+  Textarea,
+  Tooltip,
+} from '@/ui';
 import { formatDueLabel } from './dates';
 import type { GroupId, Task } from './logic';
+import { RepeatEditor } from './RepeatEditor';
+import { describeRule, formatLastDone } from './recurrence';
 
 export interface TaskRowProps {
   task: Task;
@@ -17,6 +29,8 @@ export interface TaskRowProps {
   onEdit: () => void;
   onEditDone: () => void;
   onToggle: () => void;
+  /** Complete a recurring task for good and drop its repeat rule. */
+  onCompleteAndStop: () => void;
   onDelete: () => void;
   phone: boolean;
 }
@@ -30,6 +44,14 @@ export function TaskRow(props: TaskRowProps) {
     transition: sortable.transition,
   };
   const done = task.completedAt !== null;
+  const repeatSummary = task.repeat
+    ? [
+        describeRule(task.repeat),
+        task.lastCompletedAt ? `last done ${formatLastDone(task.lastCompletedAt, today)}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : '';
   const tone = group === 'overdue' ? 'bad' : group === 'today' ? 'warn' : 'neutral';
 
   return (
@@ -66,7 +88,12 @@ export function TaskRow(props: TaskRowProps) {
           className="min-h-0"
         />
         {editing ? (
-          <TaskEditor task={task} today={today} onDone={onEditDone} />
+          <TaskEditor
+            task={task}
+            today={today}
+            onDone={onEditDone}
+            onCompleteAndStop={props.onCompleteAndStop}
+          />
         ) : (
           <>
             <button
@@ -83,10 +110,47 @@ export function TaskRow(props: TaskRowProps) {
             {task.notes && (
               <AlignLeft aria-label="Has notes" className="size-3 shrink-0 text-fg-3" />
             )}
+            {task.repeat && (
+              <Tooltip label={repeatSummary}>
+                <span
+                  role="img"
+                  aria-label={`Repeats: ${repeatSummary}`}
+                  className="inline-flex shrink-0 items-center text-fg-3"
+                  data-testid="repeat-icon"
+                >
+                  <Repeat className="size-3" aria-hidden />
+                </span>
+              </Tooltip>
+            )}
+            {task.repeat && task.lastCompletedAt && (
+              <span className="hidden shrink-0 text-xs text-fg-3 lg:inline">
+                done {formatLastDone(task.lastCompletedAt, today)}
+              </span>
+            )}
             {task.dueDate && (
               <Badge tone={done ? 'neutral' : tone} className="shrink-0">
                 {formatDueLabel(task.dueDate, today)}
               </Badge>
+            )}
+            {task.repeat && !done && (
+              <DropdownMenu
+                label={`${task.title} actions`}
+                placement="bottom-end"
+                items={[
+                  {
+                    label: 'Complete and stop repeating',
+                    onSelect: props.onCompleteAndStop,
+                  },
+                ]}
+                trigger={
+                  <IconButton
+                    label={`${task.title} actions`}
+                    icon={<MoreHorizontal />}
+                    size="sm"
+                    className="sm:opacity-0 sm:group-focus-within/row:opacity-100 sm:group-hover/row:opacity-100"
+                  />
+                }
+              />
             )}
             <IconButton
               label={`Delete ${task.title}`}
@@ -103,7 +167,17 @@ export function TaskRow(props: TaskRowProps) {
 }
 
 /** In-place editor: title, due date and notes. Each field saves when it loses focus / changes. */
-function TaskEditor({ task, today, onDone }: { task: Task; today: string; onDone: () => void }) {
+function TaskEditor({
+  task,
+  today,
+  onDone,
+  onCompleteAndStop,
+}: {
+  task: Task;
+  today: string;
+  onDone: () => void;
+  onCompleteAndStop: () => void;
+}) {
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -116,6 +190,13 @@ function TaskEditor({ task, today, onDone }: { task: Task; today: string; onDone
   };
   const saveNotes = () => {
     if (notes !== task.notes) void patch('tasks', task.id, { notes });
+  };
+  /** Changing the due date of a monthly task re-anchors its day of the month. */
+  const changeDue = (dueDate: string | null) => {
+    const day = dueDate ? Number(dueDate.slice(8, 10)) : 0;
+    if (task.repeat?.unit === 'month' && day >= 1 && task.repeat.day !== null) {
+      void patch('tasks', task.id, { dueDate, repeat: { ...task.repeat, day } });
+    } else void patch('tasks', task.id, { dueDate });
   };
   const finish = () => {
     saveTitle();
@@ -155,7 +236,7 @@ function TaskEditor({ task, today, onDone }: { task: Task; today: string; onDone
             aria-label="Due date"
             value={task.dueDate ?? ''}
             min="1970-01-01"
-            onChange={(e) => void patch('tasks', task.id, { dueDate: e.target.value || null })}
+            onChange={(e) => changeDue(e.target.value || null)}
             className="w-auto"
           />
         </label>
@@ -166,7 +247,7 @@ function TaskEditor({ task, today, onDone }: { task: Task; today: string; onDone
         >
           Today
         </button>
-        {task.dueDate && (
+        {task.dueDate && !task.repeat && (
           <button
             type="button"
             className="text-xs text-fg-3 hover:underline max-sm:py-2"
@@ -183,6 +264,19 @@ function TaskEditor({ task, today, onDone }: { task: Task; today: string; onDone
           Done
         </button>
       </div>
+      <RepeatEditor task={task} today={today} />
+      {task.repeat && (
+        <button
+          type="button"
+          className="self-start text-xs text-fg-2 hover:underline max-sm:py-2"
+          onClick={() => {
+            onCompleteAndStop();
+            onDone();
+          }}
+        >
+          Complete and stop repeating
+        </button>
+      )}
       <Textarea
         value={notes}
         rows={2}

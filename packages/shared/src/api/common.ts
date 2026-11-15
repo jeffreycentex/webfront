@@ -82,6 +82,13 @@ export const API = {
   favicons: '/api/favicons',
   /** Task 5: `POST /api/services/:bookmarkId/check` to check now; dead-link check `POST /api/services/link-check`. */
   services: '/api/services',
+  /**
+   * Pushover outage alerts (services feature, server-only state): GET config, PUT save,
+   * `DELETE ${notifications}/credentials`, `POST ${notifications}/test`.
+   */
+  notifications: '/api/services/notifications',
+  notificationsCredentials: '/api/services/notifications/credentials',
+  notificationsTest: '/api/services/notifications/test',
   /** Task 9: `POST /api/calendar/feeds/:id/refresh` to refetch now. */
   calendar: '/api/calendar',
   /** Task 8: `POST /api/attachments` (upload), `GET /api/attachments/:id`. */

@@ -1,8 +1,8 @@
-import { Plus } from 'lucide-react';
+import { Plus, Star } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type Ref } from 'react';
 import { cx, Input, useToast } from '@/ui';
 import { suggest, parseQuantity, type HistoryEntry } from './logic';
-import { addItem, type AddOutcome } from './store';
+import { addItem, addStapleByName, type AddOutcome } from './store';
 
 export interface QuickAddProps {
   listId: string;
@@ -13,6 +13,8 @@ export interface QuickAddProps {
   inputRef?: Ref<HTMLInputElement>;
   className?: string;
   autoFocus?: boolean;
+  /** Name keys of the list's staples; when given, suggestions offer "Add to staples". */
+  stapleKeys?: ReadonlySet<string>;
 }
 
 /**
@@ -27,6 +29,7 @@ export function QuickAdd({
   inputRef,
   className,
   autoFocus,
+  stapleKeys,
 }: QuickAddProps) {
   const [text, setText] = useState('');
   const [focused, setFocused] = useState(false);
@@ -141,7 +144,30 @@ export function QuickAdd({
               )}
             >
               <span className="truncate">{o.name}</span>
-              {o.section && <span className="shrink-0 text-xs text-fg-3">{o.section}</span>}
+              <span className="flex shrink-0 items-center gap-1">
+                {o.section && <span className="text-xs text-fg-3">{o.section}</span>}
+                {stapleKeys &&
+                  (stapleKeys.has(o.key) ? (
+                    <Star aria-label="Staple" className="size-3.5 fill-current text-accent-text" />
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label={`Add ${o.name} to staples`}
+                      title="Add to staples"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void addStapleByName(listId, o).then(
+                          () => toast({ title: `${o.name} added to staples` }),
+                          () => toast({ title: 'Could not add staple', tone: 'error' }),
+                        );
+                      }}
+                      className="inline-flex size-6 items-center justify-center rounded-md text-fg-3 hover:bg-surface-3 hover:text-fg max-sm:h-[44px] max-sm:w-[44px]"
+                    >
+                      <Star aria-hidden className="size-3.5" />
+                    </button>
+                  ))}
+              </span>
             </li>
           ))}
         </ul>

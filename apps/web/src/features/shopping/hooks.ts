@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { compareBySortKey } from '@webfront/shared';
 import { useCollection } from '@/data';
-import { buildHistory, type HistoryEntry } from './logic';
+import {
+  buildHistory,
+  deriveStaples,
+  missingStaples,
+  type HistoryEntry,
+  type Staple,
+} from './logic';
 
 const LAST_LIST_KEY = 'webfront.shopping.lastList';
 
@@ -79,4 +85,32 @@ export function useWakeLock(active: boolean) {
       void sentinel?.release().catch(() => {});
     };
   }, [active]);
+}
+
+/** A list's staples (derived from flagged item records, cleared ones included) and the rest. */
+export function useStaples(listId: string | undefined) {
+  const records = useCollection(
+    'shoppingItems',
+    { where: { listId: listId ?? '' }, includeDeleted: true },
+    [listId],
+  );
+  return useMemo(() => {
+    if (!records)
+      return {
+        loading: true as const,
+        staples: [] as Staple[],
+        live: [],
+        missing: [] as Staple[],
+        keys: new Set<string>(),
+      };
+    const staples = deriveStaples(records);
+    const live = records.filter((r) => !r.deleted);
+    return {
+      loading: false as const,
+      staples,
+      live,
+      missing: missingStaples(staples, live),
+      keys: new Set(staples.map((s) => s.key)),
+    };
+  }, [records]);
 }

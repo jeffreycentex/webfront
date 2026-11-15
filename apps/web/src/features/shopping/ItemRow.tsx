@@ -1,6 +1,6 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Check, Pencil, X } from 'lucide-react';
+import { Check, Pencil, Star, X } from 'lucide-react';
 import { useRef, useState, type ComponentProps, type CSSProperties, type Ref } from 'react';
 import type { ColourKey } from '@webfront/shared';
 import { colourStyle, cx, DragHandle, IconButton } from '@/ui';
@@ -16,6 +16,9 @@ export interface ItemRowProps {
   onToggle: (item: ShoppingItem) => void;
   onEdit?: (item: ShoppingItem) => void;
   onRemove?: (item: ShoppingItem) => void;
+  /** Staple state and toggle (omit the toggle to hide the star). */
+  staple?: boolean;
+  onToggleStaple?: (item: ShoppingItem, on: boolean) => void;
   /** Alt+Arrow keyboard reorder: -1 up, +1 down. */
   onMove?: (item: ShoppingItem, delta: -1 | 1) => void;
   /** Sortable wiring (only for unchecked rows). */
@@ -38,6 +41,8 @@ export function ItemRow({
   onToggle,
   onEdit,
   onRemove,
+  staple,
+  onToggleStaple,
   onMove,
   drag,
 }: ItemRowProps) {
@@ -59,7 +64,7 @@ export function ItemRow({
       {canSwipe && dx < -8 && (
         <span
           aria-hidden
-          className="absolute inset-y-0 right-0 flex items-center bg-bad px-4 text-sm font-medium text-white"
+          className="absolute inset-y-0 right-0 flex items-center bg-bad-soft px-4 text-sm font-medium text-bad-text"
         >
           Remove
         </span>
@@ -113,7 +118,7 @@ export function ItemRow({
             className={cx(
               'inline-flex shrink-0 items-center justify-center rounded-full border-2 border-[color:var(--c)]',
               shopping ? 'size-7' : 'size-4 max-sm:size-6',
-              item.checked ? 'bg-[var(--c)] text-white' : 'bg-[var(--c-soft)]',
+              item.checked ? 'bg-[var(--c-soft)] text-fg' : 'bg-surface',
             )}
           >
             {item.checked && <Check className="size-3/4" strokeWidth={3} />}
@@ -148,6 +153,22 @@ export function ItemRow({
         </button>
         {!shopping && (
           <span className="flex shrink-0 items-center gap-0.5">
+            {onToggleStaple && (
+              <IconButton
+                label={staple ? `Remove ${item.name} from staples` : `Add ${item.name} to staples`}
+                icon={<Star className={staple ? 'fill-current' : undefined} />}
+                size="sm"
+                tooltip={false}
+                aria-pressed={staple ?? false}
+                className={cx(
+                  'max-sm:h-[44px] max-sm:w-[44px]',
+                  staple
+                    ? 'text-accent-text'
+                    : 'sm:opacity-0 sm:group-focus-within/row:opacity-100 sm:group-hover/row:opacity-100',
+                )}
+                onClick={() => onToggleStaple(item, !staple)}
+              />
+            )}
             {onEdit && (
               <IconButton
                 label={`Edit ${item.name}`}

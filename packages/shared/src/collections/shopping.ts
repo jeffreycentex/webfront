@@ -42,4 +42,11 @@ export const shoppingItemFields = z.object({
   sortKey: sortKeySchema,
   /** Free-text note shown under the name. */
   note: shortTextField.default(''),
+  /**
+   * Staple flag. A list's staples are derived from the flagged item records (soft-deleted ones
+   * included, so "Clear checked" keeps them): one staple per name per list. Stored on the item,
+   * not as an array on the list, so two devices flagging different items never overwrite each
+   * other under per-field last-writer-wins. Defaults to false so existing records stay valid.
+   */
+  staple: z.boolean().default(false),
 });

@@ -1,17 +1,27 @@
 import { Trash2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { patch, useRecord } from '@/data';
-import { Button, Drawer, Field, Input, Select, useIsPhone } from '@/ui';
+import { nameKey } from './logic';
+import { Button, Drawer, Field, Input, Select, Switch, useIsPhone } from '@/ui';
+import { setStaple } from './store';
 
 export interface EditItemSheetProps {
   itemId: string | null;
   sections: readonly string[];
+  /** Name keys (see `nameKey`) of the list's staples. */
+  stapleKeys: ReadonlySet<string>;
   onClose: () => void;
   onRemove: (id: string) => void;
 }
 
 /** Edit name, quantity, section and note. Reads the live record, so remote edits show up. */
-export function EditItemSheet({ itemId, sections, onClose, onRemove }: EditItemSheetProps) {
+export function EditItemSheet({
+  itemId,
+  sections,
+  stapleKeys,
+  onClose,
+  onRemove,
+}: EditItemSheetProps) {
   const item = useRecord('shoppingItems', itemId);
   const phone = useIsPhone();
   const open = itemId !== null && Boolean(item);
@@ -22,6 +32,7 @@ export function EditItemSheet({ itemId, sections, onClose, onRemove }: EditItemS
           key={item.id}
           item={item}
           sections={sections}
+          isStaple={stapleKeys.has(nameKey(item.name))}
           onClose={onClose}
           onRemove={onRemove}
         />
@@ -33,11 +44,13 @@ export function EditItemSheet({ itemId, sections, onClose, onRemove }: EditItemS
 function EditForm({
   item,
   sections,
+  isStaple,
   onClose,
   onRemove,
 }: {
   item: NonNullable<ReturnType<typeof useRecord<'shoppingItems'>>>;
   sections: readonly string[];
+  isStaple: boolean;
   onClose: () => void;
   onRemove: (id: string) => void;
 }) {
@@ -45,6 +58,7 @@ function EditForm({
   const [quantity, setQuantity] = useState(item.quantity ?? '');
   const [section, setSection] = useState(item.section ?? '');
   const [note, setNote] = useState(item.note);
+  const [staple, setStapleOn] = useState(isStaple);
   const options =
     item.section && !sections.includes(item.section) ? [...sections, item.section] : sections;
 
@@ -58,6 +72,8 @@ function EditForm({
       section: section || null,
       note: note.trim(),
     });
+    if (staple !== isStaple)
+      void setStaple({ id: item.id, listId: item.listId, name: item.name }, staple);
     onClose();
   };
 
@@ -95,6 +111,7 @@ function EditForm({
       <Field label="Note">
         {(p) => <Input {...p} value={note} onChange={(e) => setNote(e.target.value)} />}
       </Field>
+      <Switch checked={staple} onCheckedChange={setStapleOn} label="Staple" />
       <div className="flex items-center justify-between gap-2 pt-1">
         <Button
           variant="danger"

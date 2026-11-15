@@ -258,3 +258,104 @@ export function splitChecked<T extends ItemLike>(items: readonly T[]) {
   const sorted = [...items].sort(compareBySortKey);
   return { open: sorted.filter((i) => !i.checked), checked: sorted.filter((i) => i.checked) };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Staples
+//
+// A staple is an item record of the list with `staple: true`. Soft-deleted records count (that is
+// how staples survive "Clear checked"). Several records can share a name (an item typed again
+// after the flagged one was cleared); they collapse to one staple, represented by the most
+// recently updated flagged record.
+
+export interface StapleRecord extends ItemLike {
+  note: string;
+  staple: boolean;
+  deleted?: boolean;
+  updatedAt: string;
+}
+
+export interface Staple {
+  key: string;
+  /** Id of the representative record (the one edits are written to). */
+  recordId: string;
+  name: string;
+  quantity: string | null;
+  section: string | null;
+  note: string;
+  /** Alphabetical ordering inside a section (groupBySection sorts by this). */
+  sortKey: string;
+  checked: false;
+  id: string;
+}
+
+/** One staple per name from a list's records (soft-deleted included). */
+export function deriveStaples(records: readonly StapleRecord[]): Staple[] {
+  const best = new Map<string, StapleRecord>();
+  for (const r of records) {
+    if (!r.staple) continue;
+    const key = nameKey(r.name);
+    if (!key) continue;
+    const cur = best.get(key);
+    if (!cur || (Date.parse(r.updatedAt) || 0) >= (Date.parse(cur.updatedAt) || 0))
+      best.set(key, r);
+  }
+  return [...best.entries()]
+    .map(([key, r]) => ({
+      key,
+      recordId: r.id,
+      id: r.id,
+      name: r.name,
+      quantity: r.quantity,
+      section: r.section,
+      note: r.note,
+      sortKey: key,
+      checked: false as const,
+    }))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
+
+export type StapleState = 'missing' | 'on-list' | 'in-trolley';
+
+/** Where a staple stands against the list's live (not deleted) items. */
+export function stapleState(staple: Pick<Staple, 'name'>, live: readonly ItemLike[]): StapleState {
+  const dup = findDuplicate(live, staple.name);
+  if (!dup) return 'missing';
+  return dup.checked ? 'in-trolley' : 'on-list';
+}
+
+export interface StapleAction {
+  kind: 'add' | 'uncheck';
+  staple: Staple;
+  /** The live checked item to uncheck (kind 'uncheck'). */
+  itemId?: string;
+}
+
+/**
+ * What "Add all missing" does: staples already on the list unchecked are left alone, checked
+ * ones are unchecked, absent ones are added (same rules as `addItem`).
+ */
+export function planAddStaples(
+  staples: readonly Staple[],
+  live: readonly ItemLike[],
+): StapleAction[] {
+  const out: StapleAction[] = [];
+  for (const staple of staples) {
+    const dup = findDuplicate(live, staple.name);
+    if (!dup) out.push({ kind: 'add', staple });
+    else if (dup.checked) out.push({ kind: 'uncheck', staple, itemId: dup.id });
+  }
+  return out;
+}
+
+/** Staples that are not on the list at all (the badge count). Checked ones count as present. */
+export function missingStaples(staples: readonly Staple[], live: readonly ItemLike[]): Staple[] {
+  return staples.filter((s) => stapleState(s, live) === 'missing');
+}
+
+/** Group staples by store section in the list's order (alphabetical inside a section). */
+export function groupStaples(
+  staples: readonly Staple[],
+  sections: readonly string[],
+): SectionGroup<Staple>[] {
+  return groupBySection(staples, sections);
+}

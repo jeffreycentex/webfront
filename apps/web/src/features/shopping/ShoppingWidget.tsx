@@ -1,7 +1,9 @@
 import { colourForLabel } from '@webfront/shared';
+import { useState } from 'react';
 import { Link } from 'react-router';
 import { colourStyle, EmptyState, Select, Skeleton } from '@/ui';
-import { useActiveList, useItemHistory, useShoppingLists } from './hooks';
+import { useActiveList, useItemHistory, useShoppingLists, useStaples } from './hooks';
+import { StaplesButton, StaplesSheet } from './StaplesSheet';
 import { useListItems } from './ListPanel';
 import { ItemRow } from './ItemRow';
 import { effectiveSection, groupBySection, splitChecked } from './logic';
@@ -16,6 +18,8 @@ export default function ShoppingWidget() {
   const [active, select] = useActiveList(lists);
   const items = useListItems(active?.id);
   const history = useItemHistory();
+  const { keys: stapleKeys, missing } = useStaples(active?.id);
+  const [staplesOpen, setStaplesOpen] = useState(false);
 
   if (lists === undefined) return <Skeleton className="m-2 h-16" />;
   if (!active) {
@@ -57,12 +61,17 @@ export default function ShoppingWidget() {
         <span className="ml-auto text-xs tabular-nums text-fg-2">
           {checked.length} of {total}
         </span>
+        <StaplesButton
+          missing={missing.length}
+          onClick={() => setStaplesOpen(true)}
+          className="h-6 px-1.5"
+        />
         <Link to={`/shopping?list=${active.id}`} className="text-xs text-accent-text underline">
           Open
         </Link>
       </div>
       <div className="p-2">
-        <QuickAdd listId={active.id} history={history} />
+        <QuickAdd listId={active.id} history={history} stapleKeys={stapleKeys} />
       </div>
       {items === undefined ? (
         <Skeleton className="m-2 h-12" />
@@ -90,6 +99,7 @@ export default function ShoppingWidget() {
           +{hidden} more
         </Link>
       )}
+      <StaplesSheet list={active} open={staplesOpen} onClose={() => setStaplesOpen(false)} />
     </div>
   );
 }

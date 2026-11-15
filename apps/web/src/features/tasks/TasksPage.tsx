@@ -16,6 +16,7 @@ import {
 import { ChevronRight, ListTodo } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { patch, remove, restore, transaction, useCollection } from '@/data';
+import { completeAndStop, completeTask, undoComplete } from './actions';
 import {
   Badge,
   Button,
@@ -63,11 +64,46 @@ export function TasksPage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const toggle = useCallback((t: Task) => {
-    void patch('tasks', t.id, {
-      completedAt: t.completedAt === null ? new Date().toISOString() : null,
-    });
-  }, []);
+  const toggle = useCallback(
+    (t: Task) => {
+      if (t.completedAt !== null) {
+        void patch('tasks', t.id, { completedAt: null });
+        return;
+      }
+      void completeTask(t, today).then((r) => {
+        // A recurring task rolls forward instead of completing: confirm, with Undo.
+        if (r.kind === 'rolled')
+          toast({
+            title: r.message,
+            description: t.title,
+            action: { label: 'Undo', onClick: () => void undoComplete(r) },
+          });
+      });
+    },
+    [today, toast],
+  );
+
+  const stopRepeating = useCallback(
+    (t: Task) => {
+      void completeAndStop(t).then(() =>
+        toast({
+          title: 'Done. No longer repeating',
+          description: t.title,
+          action: {
+            label: 'Undo',
+            onClick: () =>
+              void patch('tasks', t.id, {
+                completedAt: null,
+                repeat: t.repeat,
+                lastCompletedAt: t.lastCompletedAt,
+                completionCount: t.completionCount,
+              }),
+          },
+        }),
+      );
+    },
+    [toast],
+  );
 
   const del = useCallback(
     (t: Task) => {
@@ -203,6 +239,7 @@ export function TasksPage() {
       }}
       onEditDone={() => setEditingId(null)}
       onToggle={() => toggle(t)}
+      onCompleteAndStop={() => stopRepeating(t)}
       onDelete={() => del(t)}
     />
   );
@@ -227,7 +264,7 @@ export function TasksPage() {
       ) : openCount === 0 && groups.completed.length === 0 ? (
         <EmptyState title="No tasks yet" icon={<ListTodo />}>
           Type above and press Enter. Add a date in plain words: “tomorrow”, “fri”, “nov 20”, “in 3
-          days”.
+          days”, or a repeat: “every friday”, “every 2 weeks”.
         </EmptyState>
       ) : (
         <>

@@ -233,3 +233,59 @@ Shared: `urls.test.ts` (new, 2). Web: `bookmarks/BookmarkColumns.test.tsx` (+1),
 `lib/indexHtml.test.ts` (new, 2). End-to-end (`e2e/`, see that folder): security-relevant
 checks for headers, cross-site rejection, 401 when signed out, CSP-clean pages, Markdown script
 injection and safe link attributes.
+
+## Pushover notifications (services feature, added 2026-11-15)
+
+Optional phone alerts when a service goes down or recovers, sent through Pushover
+(`apps/server/src/features/services/notifications/**`, settings UI in
+`apps/web/src/features/settings/NotificationsSection.tsx`).
+
+**What leaves the tailnet.** When enabled, the server sends HTTPS requests to
+`api.pushover.net`, and through it to Apple/Google push services and the owner's devices. Each
+alert contains the service's bookmark title, the checked host and port (from the check URL or
+TCP target, without credentials, path or query string), the checker's failure reason (for
+example `HTTP 503`, `ECONNREFUSED`, `Timed out`), how long it was down, and, when the bookmark
+URL is http(s), that URL without credentials, query string or fragment in Pushover's `url`
+field. Pushover therefore learns the names and internal hostnames of the owner's homelab
+services and when they fail. Nothing is sent until the owner saves credentials and turns
+alerts on. Nothing else is sent: no notes, no other bookmarks, no session data.
+
+**Credentials.** The Pushover application token and user key are stored in the
+`notification_config` table of the server's SQLite file in plain text (migration
+`041_service_notifications.sql`). They are protected only by file permissions (the data
+directory is `0750` and owned by the `webfront` user, and the service runs with `UMask=0077`)
+and they are included in every backup archive (`deploy/backup.sh`), so anyone who can read the
+database file or a backup can read them. Encrypting them would need a key stored next to them, so
+this was not done. As an alternative, `PUSHOVER_APP_TOKEN` and `PUSHOVER_USER_KEY` in
+`/etc/webfront/webfront.env` (root-owned, mode 600) take precedence over the saved values and
+then never touch the database or backups. They are never written to the synced `settings`
+collection or any synced record (every browser keeps an unencrypted copy of synced data), never
+returned by an endpoint (the browser sees only "configured", the last 4 characters and whether
+they come from the env file), never logged, and redacted from any Pushover error text before it
+is stored, logged or returned. Values are validated as 30 characters of `[A-Za-z0-9]` before
+saving; validation errors do not echo the input. Tests assert that neither secret appears in any
+response body, log line or synced record, including when Pushover echoes them back.
+
+**Endpoints** (`/api/services/notifications`: `GET`, `PUT`, `DELETE …/credentials`,
+`POST …/test`) all use `ctx.requireAuth`, a 4 KB body limit, and the global auth middleware
+(Origin and CSRF token on mutations, `Sec-Fetch-Site: cross-site`/`same-site` refused on every
+method). Tests cover signed-out, missing/wrong CSRF token, foreign Origin and cross-site and
+same-site requests on each endpoint.
+
+**No request forgery through the test endpoint.** The transport (`pushover.ts`,
+`sendToPushover`) has the host (`api.pushover.net`), port (443), path (`/1/messages.json`) and
+method (POST) as constants, with certificate verification on, a 10 s timeout, no redirect
+following and a 16 KB response cap. The test endpoint takes no input at all (it sends a fixed
+text with the saved credentials), and only the owner can call it, at most once per 5 s. Text
+derived from bookmarks (titles, hosts, failure reasons) is placed only in field values and
+encoded with `URLSearchParams`, so a title like `x&token=…&priority=2` cannot add or override
+form fields (tested); control characters are stripped and lengths capped to Pushover's limits.
+Emergency priority (2) is never sent.
+
+**Not hammering the API.** Deliveries go out one at a time. Network errors and 5xx are retried
+after 15 s, 1 min and 5 min, then dropped. A 4xx (invalid token or user, monthly limit reached)
+is not retried: the error is recorded and automatic alerts pause until the owner saves the
+settings again or sends a successful test, because repeated 4xx responses get the sender's IP
+temporarily blocked by Pushover. Several services changing state in one check run produce one
+combined message. Alerts queued during a delivery retry are lost if the server restarts (accepted:
+the alert state itself is persisted, so a restart never re-sends or storms).

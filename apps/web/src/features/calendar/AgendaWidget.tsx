@@ -1,8 +1,11 @@
 import { CalendarDays } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import { patch, useCollection } from '@/data';
+import { useCollection } from '@/data';
 import { Badge, Checkbox, EmptyState, Panel, Skeleton, cx, useToast } from '@/ui';
+// Deliberate exception to "features never import each other": completing a task must follow the
+// tasks feature's recurrence rules, which live in one place.
+import { completeTask, undoComplete } from '../tasks/actions';
 import { EventDetails } from './EventCard';
 import { addDays, deviceZone, groupAgenda, type Ymd } from './dates';
 import { formatDay, relativeDayLabel } from './format';
@@ -43,10 +46,13 @@ export default function AgendaWidget() {
   }, [tasks, today, last]);
 
   const complete = async (id: string, title: string) => {
-    await patch('tasks', id, { completedAt: new Date().toISOString() });
+    const task = (tasks ?? []).find((t) => t.id === id);
+    if (!task) return;
+    // Shared completion logic: a recurring task rolls its due date forward instead of ending.
+    const result = await completeTask(task, today);
     toast({
-      title: `Done: ${title}`,
-      action: { label: 'Undo', onClick: () => void patch('tasks', id, { completedAt: null }) },
+      title: result.kind === 'rolled' ? `${title}: ${result.message}` : `Done: ${title}`,
+      action: { label: 'Undo', onClick: () => void undoComplete(result) },
     });
   };
 

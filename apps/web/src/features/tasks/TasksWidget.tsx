@@ -1,9 +1,11 @@
-import { ListTodo } from 'lucide-react';
+import { ListTodo, Repeat } from 'lucide-react';
 import { useMemo } from 'react';
 import { Link } from 'react-router';
 import { patch, useCollection } from '@/data';
+import { completeTask, undoComplete } from './actions';
 import { Badge, Checkbox, cx, EmptyState, Panel, Skeleton, useIsPhone, useToast } from '@/ui';
 import { formatDueLabel } from './dates';
+import { describeRule } from './recurrence';
 import { GROUP_LABEL, groupTasks, type GroupId, type Task } from './logic';
 import { QuickAdd } from './QuickAdd';
 import { useToday } from './useToday';
@@ -36,10 +38,11 @@ export default function TasksWidget({ query }: { query?: string }) {
   const more = rows.length - shown.length;
 
   const complete = async (t: Task) => {
-    await patch('tasks', t.id, { completedAt: new Date().toISOString() });
+    const r = await completeTask(t, today);
     toast({
-      title: `Done: ${t.title}`,
-      action: { label: 'Undo', onClick: () => void patch('tasks', t.id, { completedAt: null }) },
+      title: r.kind === 'rolled' ? r.message : `Done: ${t.title}`,
+      description: r.kind === 'rolled' ? t.title : undefined,
+      action: { label: 'Undo', onClick: () => void undoComplete(r) },
     });
   };
 
@@ -99,6 +102,16 @@ export default function TasksWidget({ query }: { query?: string }) {
                   >
                     {task.title}
                   </Link>
+                  {task.repeat && (
+                    <span
+                      role="img"
+                      aria-label={`Repeats: ${describeRule(task.repeat)}`}
+                      title={describeRule(task.repeat)}
+                      className="inline-flex shrink-0 text-fg-3"
+                    >
+                      <Repeat className="size-3" aria-hidden />
+                    </span>
+                  )}
                   {task.dueDate && (
                     <Badge
                       tone={group === 'overdue' ? 'bad' : group === 'today' ? 'warn' : 'neutral'}

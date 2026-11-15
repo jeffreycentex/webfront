@@ -17,6 +17,7 @@ import {
   ChevronRight,
   MoreHorizontal,
   Settings2,
+  Star,
   ShoppingBasket,
   Undo2,
   X,
@@ -39,8 +40,16 @@ import {
 } from '@/ui';
 import { EditItemSheet } from './EditItemSheet';
 import { ItemRow, SortableItemRow } from './ItemRow';
-import { effectiveSection, groupBySection, splitChecked, type HistoryEntry } from './logic';
+import {
+  effectiveSection,
+  groupBySection,
+  nameKey,
+  splitChecked,
+  type HistoryEntry,
+} from './logic';
+import { useStaples } from './hooks';
 import { QuickAdd } from './QuickAdd';
+import { StaplesButton, StaplesSheet } from './StaplesSheet';
 import {
   checkItems,
   clearChecked,
@@ -48,6 +57,7 @@ import {
   removeItems,
   restoreItems,
   setChecked,
+  setStaple,
   uncheckAll,
   type AddOutcome,
   type ShoppingItem,
@@ -73,6 +83,8 @@ export interface ListPanelProps {
   onSettings: (list: ShoppingList) => void;
   /** Increment to focus the quick-add field. */
   focusToken?: number;
+  /** Increment to open the Staples sheet. */
+  staplesToken?: number;
   className?: string;
 }
 
@@ -116,10 +128,13 @@ export function ListPanel({
   onShoppingChange,
   onSettings,
   focusToken,
+  staplesToken,
   className,
 }: ListPanelProps) {
   const items = useListItems(list.id);
   const { remove, clear, uncheck } = useActions(list.id);
+  const { keys: stapleKeys, missing } = useStaples(list.id);
+  const [staplesOpen, setStaplesOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [trolleyOpen, setTrolleyOpen] = useState(false);
   const [flashId, setFlashId] = useState<string | null>(null);
@@ -130,6 +145,10 @@ export function ListPanel({
   useEffect(() => {
     if (focusToken) inputRef.current?.focus();
   }, [focusToken]);
+
+  useEffect(() => {
+    if (staplesToken) setStaplesOpen(true);
+  }, [staplesToken]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -176,6 +195,7 @@ export function ListPanel({
   const menu: MenuItem[] = [
     { label: 'Uncheck all', icon: <Undo2 />, onSelect: () => void uncheck(), disabled: !done },
     { label: 'Clear checked', icon: <X />, onSelect: () => void clear(), disabled: !done },
+    { label: 'Staples', icon: <Star />, onSelect: () => setStaplesOpen(true) },
     'separator',
     ...(phone && onShoppingChange
       ? [
@@ -196,6 +216,7 @@ export function ListPanel({
       openUp={phone}
       onResult={onResult}
       inputRef={inputRef}
+      stapleKeys={stapleKeys}
     />
   );
 
@@ -205,6 +226,7 @@ export function ListPanel({
     </Button>
   ) : (
     <>
+      <StaplesButton missing={missing.length} onClick={() => setStaplesOpen(true)} />
       <DropdownMenu
         label={`${list.name} actions`}
         placement="bottom-end"
@@ -310,6 +332,8 @@ export function ListPanel({
                               onToggle={(i) => void setChecked(i.id, true)}
                               onEdit={(i) => setEditId(i.id)}
                               onRemove={(i) => void remove(i)}
+                              staple={stapleKeys.has(nameKey(item.name))}
+                              onToggleStaple={(i, on) => void setStaple(i, on)}
                               onMove={onMove}
                             />
                           ),
@@ -358,7 +382,14 @@ export function ListPanel({
                           shopping={shopping}
                           flash={flashId === item.id}
                           onToggle={(i) => void setChecked(i.id, false)}
-                          {...(shopping ? {} : { onEdit: (i: ShoppingItem) => setEditId(i.id) })}
+                          {...(shopping
+                            ? {}
+                            : {
+                                onEdit: (i: ShoppingItem) => setEditId(i.id),
+                                staple: stapleKeys.has(nameKey(item.name)),
+                                onToggleStaple: (i: ShoppingItem, on: boolean) =>
+                                  void setStaple(i, on),
+                              })}
                         />
                       ))}
                     </ul>
@@ -379,12 +410,14 @@ export function ListPanel({
       <EditItemSheet
         itemId={editId}
         sections={list.sections}
+        stapleKeys={stapleKeys}
         onClose={() => setEditId(null)}
         onRemove={(id) => {
           const item = items?.find((i) => i.id === id);
           if (item) void remove(item);
         }}
       />
+      <StaplesSheet list={list} open={staplesOpen} onClose={() => setStaplesOpen(false)} />
     </Panel>
   );
 }
