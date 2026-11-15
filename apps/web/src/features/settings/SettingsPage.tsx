@@ -10,6 +10,7 @@ const SearchSection = lazy(() => import('./SearchSection'));
 const SecuritySection = lazy(() => import('./SecuritySection'));
 const NotificationsSection = lazy(() => import('./NotificationsSection'));
 const DataSection = lazy(() => import('./DataSection'));
+const DeletedSection = lazy(() => import('./DeletedSection'));
 const AboutSection = lazy(() => import('./AboutSection'));
 
 interface Entry {
@@ -38,6 +39,7 @@ const AFTER: Entry[] = [
     colour: 'red',
   },
   { id: 'data', title: 'Data', component: DataSection, colour: 'green' },
+  { id: 'deleted', title: 'Recently deleted', component: DeletedSection, colour: null },
   { id: 'about', title: 'About', component: AboutSection, colour: null },
 ];
 

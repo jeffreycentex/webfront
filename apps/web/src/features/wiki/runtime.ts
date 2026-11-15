@@ -1,5 +1,5 @@
 import { newId } from '@webfront/shared';
-import { patch, put, reader, registerRecordResolver, transaction } from '@/data';
+import { onDataReset, patch, put, reader, registerRecordResolver, transaction } from '@/data';
 import {
   createLocalStorageStore,
   createWikiResolver,
@@ -94,7 +94,31 @@ export function registerWikiResolver(): void {
     'wikiPages',
     createWikiResolver({ store: bodyStore, newId: () => newId(), onSnapshots: enqueueSnapshots }),
   );
+  // Local data was replaced (server restore) or wiped (sign-out): merge bases, draft backups
+  // and queued snapshots describe the old pages and must not be merged onto the new ones.
+  onDataReset(forgetDeviceState);
   if (queue.length > 0) flushTimer ??= setTimeout(() => void flushSnapshots(), 0);
+}
+
+/** Draft backups written by useBodyEditor (`webfront.wiki.draft.<id>`). */
+const DRAFT_PREFIX = 'webfront.wiki.draft.';
+
+function forgetDeviceState(): void {
+  for (const id of bodyStore.keys()) bodyStore.delete(id);
+  queue = [];
+  saveQueue();
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = null;
+  try {
+    const doomed: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(DRAFT_PREFIX)) doomed.push(key);
+    }
+    for (const key of doomed) localStorage.removeItem(key);
+  } catch {
+    // storage unavailable
+  }
 }
 
 /* -------------------------------------------------------------------- reconciler */

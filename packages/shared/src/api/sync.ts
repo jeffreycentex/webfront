@@ -14,9 +14,15 @@ import { collectionNameSchema } from '../registry.js';
  *   latest accepted change).
  * - Clients pull every record with `seq > since`, in seq order, and merge them locally.
  *   The returned `cursor` is the next `since`. Pull returns full records, not deltas.
- * - `serverId` identifies the database instance; if it differs from what a client stored,
- *   the server DB was replaced (restore) and the client must pull from 0 and re-push its
- *   outbox.
+ * - `serverId` identifies the database instance (it survives backup and restore).
+ * - `epoch` is the restore marker (`meta.sync_epoch`): a random id written by `webfront-restore`
+ *   after it puts a backup in place (and once when a database is created). The restored
+ *   database is the truth: a client that sees the epoch change from one it knew must discard
+ *   its local copy of synced data and its outbox (setting the outbox aside), then pull from 0.
+ *   Every push that carries changes must send the epoch the client knows; the server answers
+ *   409 `stale_epoch` (applying nothing) when it is missing or different, so no client can
+ *   push data from before a restore onto the restored database. An empty push is a probe and
+ *   is always answered. Responses from servers older than the epoch omit it (optional here).
  * - `GET /api/sync/events` is an SSE stream that only pokes ("there is something new");
  *   clients respond by pulling.
  * - Pushes to collections whose registry entry has `writable: false` are rejected.
@@ -24,6 +30,14 @@ import { collectionNameSchema } from '../registry.js';
  */
 
 export const MAX_PUSH_CHANGES = 500;
+
+/** A restore marker: 32 lowercase hex chars (`lower(hex(randomblob(16)))` in SQLite). */
+export const syncEpochSchema = z.string().regex(/^[0-9a-f]{32}$/);
+export type SyncEpoch = z.infer<typeof syncEpochSchema>;
+
+/** `details` of a 409 `stale_epoch` push rejection. */
+export const staleEpochDetailsSchema = z.object({ serverId: z.string(), epoch: syncEpochSchema });
+export type StaleEpochDetails = z.infer<typeof staleEpochDetailsSchema>;
 export const DEFAULT_PULL_LIMIT = 500;
 export const MAX_PULL_LIMIT = 2000;
 
@@ -40,6 +54,12 @@ export type RecordChange = z.infer<typeof recordChangeSchema>;
 /** `POST /api/sync/push` */
 export const pushRequestSchema = z.object({
   clientId: clientIdSchema,
+  /**
+   * The server epoch this client's data is based on. Required (by the server, with a 409
+   * `stale_epoch`) whenever `changes` is not empty; optional in the schema so a probe from a
+   * client that does not know the epoch yet, and requests from older clients, still parse.
+   */
+  epoch: syncEpochSchema.optional(),
   changes: z.array(recordChangeSchema).max(MAX_PUSH_CHANGES),
 });
 export type PushRequest = z.infer<typeof pushRequestSchema>;
@@ -67,6 +87,8 @@ export type PushResult = z.infer<typeof pushResultSchema>;
 
 export const pushResponseSchema = z.object({
   serverId: z.string(),
+  /** The server's current epoch (absent from servers that predate it). */
+  epoch: syncEpochSchema.optional(),
   results: z.array(pushResultSchema),
   /** Highest seq on the server after this push. */
   maxSeq: z.int().min(0),
@@ -97,6 +119,8 @@ export type PulledRecord = z.infer<typeof pulledRecordSchema>;
 
 export const pullResponseSchema = z.object({
   serverId: z.string(),
+  /** The server's current epoch (absent from servers that predate it). */
+  epoch: syncEpochSchema.optional(),
   records: z.array(pulledRecordSchema),
   /** Pass as `since` next time (the seq of the last record returned, or `since` if none). */
   cursor: z.int().min(0),
@@ -106,7 +130,7 @@ export type PullResponse = z.infer<typeof pullResponseSchema>;
 
 /**
  * `GET /api/sync/events` — text/event-stream.
- * - `event: hello` once on connect, `data: {"serverId": "...", "maxSeq": n}`
+ * - `event: hello` once on connect, `data: {"serverId": "...", "epoch": "...", "maxSeq": n}`
  * - `event: changed` after accepted writes, `data: {"maxSeq": n, "originClientId": "..." | null}`
  *   (clients may ignore pokes caused by their own push)
  * - comment lines (`: ping`) every ~25 s as keep-alive.
@@ -114,7 +138,11 @@ export type PullResponse = z.infer<typeof pullResponseSchema>;
  */
 export const SYNC_EVENT = { hello: 'hello', changed: 'changed' } as const;
 
-export const syncHelloEventSchema = z.object({ serverId: z.string(), maxSeq: z.int().min(0) });
+export const syncHelloEventSchema = z.object({
+  serverId: z.string(),
+  epoch: syncEpochSchema.optional(),
+  maxSeq: z.int().min(0),
+});
 export type SyncHelloEvent = z.infer<typeof syncHelloEventSchema>;
 
 export const syncChangedEventSchema = z.object({

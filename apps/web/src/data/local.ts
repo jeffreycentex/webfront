@@ -117,7 +117,11 @@ export type RecordResolver<N extends CollectionName = CollectionName> = (
 
 export class DataError extends Error {
   constructor(
-    readonly code: 'not_found' | 'read_only' | 'invalid_id' | 'invalid_field',
+    /**
+     * `stale`: the write came from state loaded before this device's local data was reset
+     * (a server restore, or sign-out in another tab). It was not applied.
+     */
+    readonly code: 'not_found' | 'read_only' | 'invalid_id' | 'invalid_field' | 'stale',
     message: string,
   ) {
     super(message);
@@ -181,7 +185,7 @@ function pick(
 }
 
 /** Rough JSON size of a change, for batching. */
-function changeSize(entry: OutboxEntry): number {
+function changeSize(entry: { fields: Record<string, FieldChange> }): number {
   let n = 100;
   for (const [k, fc] of Object.entries(entry.fields)) {
     n += k.length + 40;
@@ -205,12 +209,79 @@ export interface LocalStoreOptions {
   now?: () => number;
 }
 
+/** Why local data was reset. */
+export type DataResetReason = 'restore' | 'clear';
+
+/** Passed to `onDataReset` listeners. */
+export interface DataResetEvent {
+  /** The new data generation (increases by one per reset). */
+  generation: number;
+  reason: DataResetReason;
+}
+
+/**
+ * Shown by the shell after a restore reset (persisted in `_meta`, so every tab sees it and it
+ * survives reloads until dismissed).
+ */
+export interface RestoreNotice {
+  at: string;
+  /** Records with unsynced changes that were set aside (outbox entries). */
+  setAside: number;
+  /** Set-aside entries dropped because the store was over its cap. */
+  dropped: number;
+}
+
+/** One reset's worth of set-aside outbox entries. */
+export interface SetAsideBatch {
+  at: string;
+  serverId: string | null;
+  fromEpoch: string | null;
+  toEpoch: string | null;
+  changes: RecordChange[];
+}
+
+/** Caps for the set-aside store (oldest batches go first, then the tail of an oversized batch). */
+export const MAX_SET_ASIDE_CHANGES = 5000;
+export const MAX_SET_ASIDE_BYTES = 8 * 1024 * 1024;
+
+/** Keep the newest batches within the caps. Returns the kept batches and how many changes went. */
+export function capSetAside(batches: SetAsideBatch[]): { kept: SetAsideBatch[]; dropped: number } {
+  const kept: SetAsideBatch[] = [];
+  let count = 0;
+  let bytes = 0;
+  let dropped = 0;
+  for (let i = batches.length - 1; i >= 0; i--) {
+    const b = batches[i]!;
+    const changes: RecordChange[] = [];
+    for (const c of b.changes) {
+      const size = changeSize(c);
+      if (count + 1 > MAX_SET_ASIDE_CHANGES || bytes + size > MAX_SET_ASIDE_BYTES) {
+        dropped++;
+        continue;
+      }
+      changes.push(c);
+      count++;
+      bytes += size;
+    }
+    if (changes.length > 0) kept.unshift({ ...b, changes });
+  }
+  return { kept, dropped };
+}
+
 export class LocalStore {
   private readonly now: () => number;
   private readonly resolvers = new Map<CollectionName, FieldResolverSource>();
   private readonly recordResolvers = new Map<CollectionName, RecordResolver>();
   private readonly writeListeners = new Set<() => void>();
   private readonly pullListeners = new Set<(collections: CollectionName[]) => void>();
+  private readonly resetListeners = new Set<(event: DataResetEvent) => void>();
+  /**
+   * The data generation this tab's in-memory state belongs to (undefined until first read).
+   * Writes from a tab whose generation is behind the stored one are rejected (`stale`): they
+   * come from editors and forms that still hold data from before a reset.
+   */
+  private ackedGeneration: number | undefined;
+  private acking: Promise<void> = Promise.resolve();
 
   constructor(
     readonly db: Dexie,
@@ -270,6 +341,115 @@ export class LocalStore {
 
   async rememberServerId(serverId: string): Promise<void> {
     await this.setMeta('serverId', serverId);
+  }
+
+  /** The server epoch (restore marker) this replica's data is based on; null if never seen. */
+  async knownEpoch(): Promise<string | null> {
+    return (await this.getMeta<string>('epoch')) ?? null;
+  }
+
+  async rememberEpoch(epoch: string): Promise<void> {
+    await this.setMeta('epoch', epoch);
+  }
+
+  /** Remember the server identity (first contact, or adopting an epoch for the first time). */
+  async rememberServer(serverId: string, epoch: string | undefined): Promise<void> {
+    await this.db.transaction('rw', [META], async () => {
+      await this.setMeta('serverId', serverId);
+      if (epoch !== undefined) await this.setMeta('epoch', epoch);
+    });
+  }
+
+  /* -------------------------------------------------------------- reset generation */
+
+  /** The stored data generation (0 before the first reset). */
+  async storedGeneration(): Promise<number> {
+    return (await this.getMeta<number>('generation')) ?? 0;
+  }
+
+  /** The generation this tab has caught up with (undefined until known). */
+  get generation(): number | undefined {
+    return this.ackedGeneration;
+  }
+
+  /** Called (in this tab) after local data was reset, before stale writes are accepted again. */
+  onReset(fn: (event: DataResetEvent) => void): () => void {
+    this.resetListeners.add(fn);
+    return () => this.resetListeners.delete(fn);
+  }
+
+  /**
+   * Catch this tab up with the stored generation: when it moved on, run the reset listeners
+   * (editors drop their in-memory text, features drop per-device state), then accept writes
+   * again. Also finishes a reset whose device-state cleanup was interrupted (crash, reload).
+   * Safe to call any time and from any tab; calls are serialised.
+   */
+  acknowledgeGeneration(): Promise<void> {
+    this.acking = this.acking.then(
+      () => this.doAcknowledge(),
+      () => this.doAcknowledge(),
+    );
+    return this.acking;
+  }
+
+  private async doAcknowledge(): Promise<void> {
+    const [stored, pending] = await this.db.transaction('r', [META], async () => [
+      await this.storedGeneration(),
+      await this.getMeta<{ generation: number; reason: DataResetReason }>('resetCleanup'),
+    ]);
+    const first = this.ackedGeneration === undefined;
+    const moved = !first && stored !== this.ackedGeneration;
+    const interrupted = pending !== undefined && pending.generation === stored;
+    if (moved || interrupted) {
+      const reason = interrupted ? pending.reason : ((await this.lastResetReason()) ?? 'restore');
+      this.emitReset({ generation: stored, reason });
+    }
+    this.ackedGeneration = stored;
+    if (interrupted) {
+      // The listeners ran (synchronously) in this tab: the cleanup is done.
+      await this.db.transaction('rw', [META], async () => {
+        const cur = await this.getMeta<{ generation: number }>('resetCleanup');
+        if (cur?.generation === stored) await this.table(META).delete('resetCleanup');
+      });
+    }
+  }
+
+  private async lastResetReason(): Promise<DataResetReason | undefined> {
+    return this.getMeta<DataResetReason>('resetReason');
+  }
+
+  private emitReset(event: DataResetEvent): void {
+    for (const fn of [...this.resetListeners]) {
+      try {
+        fn(event);
+      } catch (err) {
+        console.error('@/data: reset listener failed', err);
+      }
+    }
+  }
+
+  /** Inside a rw transaction that includes META: bump the generation and mark cleanup pending. */
+  private async bumpGeneration(reason: DataResetReason): Promise<number> {
+    const next = (await this.storedGeneration()) + 1;
+    await this.setMeta('generation', next);
+    await this.setMeta('resetReason', reason);
+    await this.setMeta('resetCleanup', { generation: next, reason });
+    return next;
+  }
+
+  /* ---------------------------------------------------------------- restore notice */
+
+  async restoreNotice(): Promise<RestoreNotice | null> {
+    return (await this.getMeta<RestoreNotice | null>('restoreNotice')) ?? null;
+  }
+
+  async dismissRestoreNotice(): Promise<void> {
+    await this.table(META).delete('restoreNotice');
+  }
+
+  /** Outbox entries set aside by restore resets (newest batch last). */
+  async setAsideChanges(): Promise<SetAsideBatch[]> {
+    return (await this.getMeta<SetAsideBatch[]>('setAside')) ?? [];
   }
 
   async readStatus(): Promise<SyncStatus> {
@@ -386,7 +566,16 @@ export class LocalStore {
     build: (existing: AnyRecord | undefined) => Record<string, unknown>,
   ): Promise<AnyRecord> {
     const def = collections[collection];
+    let stale = false;
     const stored = await this.db.transaction('rw', [collection, OUTBOX, META], async () => {
+      const generation = await this.storedGeneration();
+      if (this.ackedGeneration === undefined) this.ackedGeneration = generation;
+      if (generation !== this.ackedGeneration) {
+        // Thrown after the transaction (an error named DataError thrown inside it would be
+        // rewrapped by Dexie as its own DataError).
+        stale = true;
+        return undefined;
+      }
       const table = this.table(collection);
       const raw = (await table.get(id)) as AnyRecord | undefined;
       const existing = raw ? withDefaults(collection, raw) : undefined;
@@ -414,6 +603,14 @@ export class LocalStore {
       await this.saveClock(clock);
       return next;
     });
+    if (stale || !stored) {
+      // Catch this tab up (listeners invalidate stale editors) before writes are accepted again.
+      void this.acknowledgeGeneration().catch(() => undefined);
+      throw new DataError(
+        'stale',
+        `${collection}/${id}: not saved, this device's data was reset (restored backup or sign-out)`,
+      );
+    }
     this.emitLocalWrite();
     return stored;
   }
@@ -823,11 +1020,14 @@ export class LocalStore {
   }
 
   /**
-   * The server database was replaced: forget the cursor, drop server-owned data (it will be
-   * pulled again) and queue every local record of writable collections for a full re-push.
+   * A different, EMPTY server database (fresh install after the old server was lost): forget
+   * the cursor, drop server-owned data (it will be pulled again) and queue every local record
+   * of writable collections for a full re-push, so this device repopulates the new server.
+   * Never used for a restored database (see `resetForRestore`).
    */
-  async resetForNewServer(serverId: string): Promise<void> {
+  async resetForNewServer(serverId: string, epoch?: string): Promise<void> {
     await this.db.transaction('rw', this.allTables(), async () => {
+      if (epoch !== undefined) await this.setMeta('epoch', epoch);
       for (const def of listCollections()) {
         const table = this.table(def.name);
         if (!def.writable) {
@@ -844,10 +1044,83 @@ export class LocalStore {
     });
   }
 
-  /** Remove every local record, the outbox and all metadata (sign-out). */
+  /**
+   * The server database was restored from a backup (its epoch changed): the restored data is
+   * the truth. In ONE transaction: set the outbox aside (kept in `_meta.setAside`, capped),
+   * clear every synced collection and the outbox, reset the cursor, adopt the server identity,
+   * bump the data generation (stale writes from open editors are rejected from now on) and
+   * persist the notice. Then run the reset listeners in this tab. The caller pulls from 0.
+   *
+   * Crash-safe: if the transaction fails nothing changed and the next sync redoes it; if the
+   * page dies after it committed, `acknowledgeGeneration()` on the next start finishes the
+   * per-device cleanup (`resetCleanup` marker).
+   */
+  async resetForRestore(identity: {
+    serverId: string;
+    epoch: string | undefined;
+    /** Tests: fail inside the transaction after this many steps. */
+    _failAfter?: number;
+  }): Promise<{ setAside: number }> {
+    let setAside = 0;
+    await this.db.transaction('rw', this.allTables(), async () => {
+      let steps = 0;
+      const step = () => {
+        if (identity._failAfter !== undefined && ++steps > identity._failAfter) {
+          throw new Error('injected failure during reset');
+        }
+      };
+      const pending = (await this.table(OUTBOX).orderBy('seq').toArray()) as OutboxEntry[];
+      setAside = pending.length;
+      const prevBatches = await this.setAsideChanges();
+      let dropped = 0;
+      if (pending.length > 0) {
+        const batch: SetAsideBatch = {
+          at: new Date(this.now()).toISOString(),
+          serverId: await this.knownServerId(),
+          fromEpoch: await this.knownEpoch(),
+          toEpoch: identity.epoch ?? null,
+          changes: pending.map(outboxEntryToChange),
+        };
+        const capped = capSetAside([...prevBatches, batch]);
+        dropped = capped.dropped;
+        await this.setMeta('setAside', capped.kept);
+      }
+      step();
+      for (const def of listCollections()) {
+        await this.table(def.name).clear();
+        step();
+      }
+      await this.table(OUTBOX).clear();
+      step();
+      await this.setMeta('cursor', 0);
+      await this.setMeta('serverId', identity.serverId);
+      if (identity.epoch !== undefined) await this.setMeta('epoch', identity.epoch);
+      else await this.table(META).delete('epoch');
+      await this.bumpGeneration('restore');
+      const prev = await this.restoreNotice();
+      await this.setMeta<RestoreNotice>('restoreNotice', {
+        at: new Date(this.now()).toISOString(),
+        // Two restores before the notice was dismissed: keep counting.
+        setAside: (prev?.setAside ?? 0) + setAside,
+        dropped: (prev?.dropped ?? 0) + dropped,
+      });
+      step();
+    });
+    await this.acknowledgeGeneration();
+    return { setAside };
+  }
+
+  /**
+   * Remove every local record, the outbox and all metadata (sign-out). The data generation is
+   * kept and bumped, so editors still open in other tabs cannot write into the emptied store.
+   */
   async clear(): Promise<void> {
     await this.db.transaction('rw', this.allTables(), async () => {
+      const generation = await this.storedGeneration();
       for (const name of this.allTables()) await this.table(name).clear();
+      await this.setMeta('generation', generation);
+      await this.bumpGeneration('clear');
     });
+    await this.acknowledgeGeneration();
   }
 }

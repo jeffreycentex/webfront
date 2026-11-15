@@ -18,7 +18,7 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate, useNavigation } from 'react-router';
 import { useAuth } from '../auth';
-import { syncNow, useSyncStatus } from '../data';
+import { syncNow, useDataGeneration, useSyncStatus } from '../data';
 import { useFeatures } from '../features/context';
 import type { Command, NavEntry } from '../features/types';
 import { cx } from '../lib/cx';
@@ -38,6 +38,7 @@ import {
 } from '../ui';
 import { CommandPalette } from './CommandPalette';
 import { ShortcutsDialog } from './ShortcutsDialog';
+import { RestoreNotice } from './RestoreNotice';
 import { OnlineIndicator, SyncIndicator } from './SyncIndicator';
 import { UpdatePrompt } from './UpdatePrompt';
 
@@ -150,6 +151,9 @@ export function Layout() {
   );
 
   const loading = navigation.state === 'loading';
+  // Bumped after this device's data was reset (server restore): remount the page so open
+  // editors and forms drop text typed against the old data instead of saving it later.
+  const dataGeneration = useDataGeneration();
 
   return (
     <ShellContext.Provider value={actions}>
@@ -173,6 +177,7 @@ export function Layout() {
               <div className="absolute inset-y-0 w-1/3 animate-[wf-progress_1s_ease-in-out_infinite] bg-accent" />
             </div>
           )}
+          <RestoreNotice />
           <RejectedBanner />
           {auth.status === 'offline' && (
             <p className="border-b border-warn/30 bg-warn-soft px-3 py-0.5 text-xs text-warn-text">
@@ -184,7 +189,7 @@ export function Layout() {
             tabIndex={-1}
             className="scroll-thin min-h-0 flex-1 overflow-auto px-3 py-2.5 outline-none max-sm:px-2.5"
           >
-            <Outlet />
+            <Outlet key={dataGeneration} />
           </main>
           {phone && <TabBar nav={nav} />}
         </div>

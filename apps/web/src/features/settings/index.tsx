@@ -13,5 +13,13 @@ export default defineFeature({
       lazy: async () => ({ Component: (await import('./SettingsPage')).SettingsPage }),
     },
   ],
+  commands: [
+    {
+      id: 'settings.recentlyDeleted',
+      title: 'Recently deleted',
+      keywords: ['restore', 'undelete', 'trash', 'bin', 'recover', 'undo'],
+      run: ({ navigate }) => void navigate('/settings#deleted'),
+    },
+  ],
   nav: { label: 'Settings', icon: Settings, path: '/settings', order: 90, shortcut: 'g ,' },
 });

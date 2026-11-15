@@ -120,6 +120,7 @@ systemctl restart webfront.service
 if health; then
   warn "Rolled back; the old version is running. The failed build is kept at $REL"
   warn "If the new version changed the database schema, restore the pre-update backup: webfront-restore <archive above>"
+  warn "(webfront-restore marks the restore so devices reload it; never copy webfront.db back by hand without webfront-restore --new-epoch)"
   exit 1
 fi
 die "rollback also failed. Inspect: journalctl -u webfront -n 80. Backup: $BACKUP_OUT"

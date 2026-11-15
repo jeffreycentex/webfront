@@ -31,6 +31,12 @@ export const ERROR_CODES = {
   clockDrift: 'clock_drift',
   incompleteRecord: 'incomplete_record',
   readOnly: 'read_only',
+  /**
+   * 409 on `POST /api/sync/push`: the push carried no epoch or not the server's current one
+   * (the database was restored since this client last synced). Nothing was applied.
+   * `details` is `StaleEpochDetails` (`{ serverId, epoch }`).
+   */
+  staleEpoch: 'stale_epoch',
   /** Client-side fallback when an error response had no ApiError body. */
   httpError: 'http_error',
 } as const;

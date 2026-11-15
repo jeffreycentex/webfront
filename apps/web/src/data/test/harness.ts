@@ -1,4 +1,7 @@
 import 'fake-indexeddb/auto';
+import { copyFileSync, mkdtempSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { Hono } from 'hono';
 import { ApiRequestError, NetworkError } from '@/lib/api';
 import { createContext, type AppContext, type AppEnv } from '../../../../server/src/context';
@@ -32,8 +35,49 @@ export interface TestServer {
   close(): Promise<void>;
 }
 
-export async function createTestServer(opts: { now?: number } = {}): Promise<TestServer> {
-  const db = openDatabase(':memory:');
+/**
+ * What `deploy/restore.sh` runs on the restored database before starting the service (keep the
+ * two identical): a fresh restore marker, written whether or not the backup already had one.
+ */
+export const RESTORE_EPOCH_SQL = `INSERT INTO meta (key, value) VALUES ('sync_epoch', lower(hex(randomblob(16)))) ON CONFLICT(key) DO UPDATE SET value = excluded.value;`;
+
+/** "Backup": an online SQLite backup of the server database into a temp file. */
+export async function backupServer(server: TestServer): Promise<string> {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'wf-backup-'));
+  const file = path.join(dir, 'webfront.db');
+  await server.ctx.db.backup(file);
+  return file;
+}
+
+/**
+ * "webfront-restore": copy the backup into place, rewrite the epoch exactly as restore.sh does
+ * (unless `newEpoch: false`, i.e. a manual file copy) and start a server on it.
+ */
+export async function restoreServer(
+  backupFile: string,
+  opts: { now?: number; newEpoch?: boolean } = {},
+): Promise<TestServer> {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'wf-restore-'));
+  const file = path.join(dir, 'webfront.db');
+  copyFileSync(backupFile, file);
+  if (opts.newEpoch !== false) {
+    const db = openDatabase(file);
+    db.exec(RESTORE_EPOCH_SQL);
+    db.close();
+  }
+  return createTestServer({ ...opts, file });
+}
+
+/** The server's current epoch, read straight from its database. */
+export function serverEpoch(server: TestServer): string {
+  return server.ctx.db.get<{ value: string }>(`SELECT value FROM meta WHERE key = 'sync_epoch'`)!
+    .value;
+}
+
+export async function createTestServer(
+  opts: { now?: number; file?: string } = {},
+): Promise<TestServer> {
+  const db = openDatabase(opts.file ?? ':memory:');
   runMigrations(db);
   const ctx = createContext({ config: {} as never, db, logger: silentLogger });
   ctx.onClose(() => db.close());
@@ -72,6 +116,8 @@ export interface TestClient {
   /** Fail the next N transport calls of a kind with a network error (after the server ran them, if `afterServer`). */
   failNext: { push: number; pull: number; afterServer: boolean };
   calls: { push: number; pull: number };
+  /** Every push request body this client sent (most recent last). */
+  pushes: Array<{ epoch?: string | undefined; changes: number }>;
   /** Handlers of the (fake) SSE stream while the engine has it open. */
   sse: SyncEventHandlers | null;
   now: number;
@@ -90,6 +136,7 @@ export function createTestClient(
     server,
     failNext: { push: 0, pull: 0, afterServer: false },
     calls: { push: 0, pull: 0 },
+    pushes: [] as TestClient['pushes'],
     sse: null,
     now: options.now ?? server.now,
   } as TestClient;
@@ -115,7 +162,10 @@ export function createTestClient(
   };
 
   const transport: SyncTransport = {
-    push: (req) => viaServer('push', () => http.push(req)),
+    push: (req) => {
+      client.pushes.push({ epoch: req.epoch, changes: req.changes.length });
+      return viaServer('push', () => http.push(req));
+    },
     pull: (since, limit) => viaServer('pull', () => http.pull(since, limit)),
     connectEvents: (_clientId, handlers) => {
       client.sse = handlers;

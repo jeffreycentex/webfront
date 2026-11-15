@@ -289,3 +289,54 @@ settings again or sends a successful test, because repeated 4xx responses get th
 temporarily blocked by Pushover. Several services changing state in one check run produce one
 combined message. Alerts queued during a delivery retry are lost if the server restarts (accepted:
 the alert state itself is persisted, so a restart never re-sends or storms).
+
+## Authoritative restore (sync epoch, added 2026-11-15)
+
+**Problem.** Every browser keeps a full local copy with tombstones. When a client saw the
+server's seq go backwards (or a new `serverId`) it re-pushed everything it held, so after
+`webfront-restore` the newer local state (deletions included) won last-writer-wins and undid
+the restore on the next sync.
+
+**Design.** The server database carries a restore marker, `meta.sync_epoch` (32 hex chars;
+migration `020_sync_epoch.sql`, self-repaired by the record store if missing or invalid).
+`deploy/restore.sh` writes a fresh value into the staged copy and again into the restored file
+in place, before the service starts, and fails loudly if it cannot (`write_epoch`, tested by
+`deploy/test/restore-epoch.test.sh`). `webfront-restore --new-epoch` marks a database that was
+put in place by hand.
+
+- Every sync response (push, pull, SSE `hello`) reports `serverId` and `epoch`.
+- Every push that carries changes must send the client's epoch; a missing or different one
+  gets 409 `stale_epoch` with nothing applied (checked synchronously with the apply, so it
+  cannot race). An empty push (identity probe) is always answered.
+- A client that sees the epoch change from one it knew (same `serverId`), or a seq lower than
+  its cursor, treats the server as restored: in one IndexedDB transaction it sets its outbox
+  aside (`_meta.setAside`, capped at 5000 changes / ~8 MB, newest kept), clears every synced
+  collection, the outbox and the cursor, and bumps a data generation; then it pulls from 0.
+  Every tab runs `onDataReset` listeners (the wiki drops its merge state, draft backups and
+  queued snapshots; open editors cancel pending saves; the shell remounts the page), and until
+  a tab has done so its writes are refused (`DataError('stale')`), so stale in-memory text
+  cannot be written back. The shell shows a persistent notice with a JSON download of the
+  set-aside changes.
+- First contact for a device that knows no epoch yet (deploying this change) adopts the epoch
+  without discarding anything. A different `serverId` whose database is empty (`maxSeq` 0, a
+  fresh install after losing the server without a backup) is repopulated by re-pushing; any
+  other different database is treated as a restore.
+
+**Compatibility.** Old cached client + new server: its pushes carry no epoch and are refused
+(409, shown as a sync error until the tab reloads and picks up the new client); pulls still
+work. New client + old server (after a code rollback): responses have no epoch, the client
+sends whatever epoch it knows, which the old server ignores; restores on an old server are only
+detected by the seq check and handled as authoritative. Rolling the code back does not touch
+the database (migration 020 only adds a `meta` row, which old code ignores).
+
+**Residual risks (accepted).**
+
+- A database file copied into place by hand (or a whole-container snapshot restore) keeps its
+  old epoch. Devices whose cursor is ahead of the restored seq still detect it, but a device
+  that probes late can push before noticing. Documented: run `webfront-restore --new-epoch`.
+- If the owner restores a backup _before_ a device has synced once with an epoch-aware server
+  (the first contact after deploying this), that device can only detect the restore by the
+  seq check. Deploy the update, let devices sync, then restore.
+- Set-aside changes are kept only on the device, unencrypted like the rest of its local copy,
+  until sign-out clears them. Attachments uploaded while offline are not set aside; their wiki
+  references are, and unreferenced files are removed by the attachments cleanup.

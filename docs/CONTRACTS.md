@@ -108,9 +108,9 @@ Server-owned (read-only for clients) are `calendarEvents` and `serviceStatuses`.
   Pushes to server-owned collections, unknown fields, invalid values and stamps more than
   `MAX_CLOCK_DRIFT_MS` ahead are rejected.
 - `GET /api/sync/pull?since=<seq>&limit=<n>` returns full records with `seq > since` in seq order, and
-  `{ cursor, hasMore, serverId }`. If `serverId` changes (the database was restored), pull from 0
-  and re-push.
-- `GET /api/sync/events` is SSE: `hello` once, then `changed` pokes with `{ maxSeq, originClientId }`.
+  `{ cursor, hasMore, serverId, epoch }`. See the restore addendum below for what a changed
+  `serverId` or `epoch` means (a restore is authoritative; nothing is re-pushed onto it).
+- `GET /api/sync/events` is SSE: `hello` once (`{ serverId, epoch, maxSeq }`), then `changed` pokes with `{ maxSeq, originClientId }`.
 - The server assigns seq from `meta.records_seq` (it only ever increases). A record's seq is the
   seq of its latest accepted change. `clientId` is 16 hex chars and doubles as the HLC node id.
 - Wiki `body` (`textMergeFields`): the server does plain LWW. The client does a three-way merge
@@ -289,6 +289,7 @@ use `List` / `ListRow` and `useIsPhone()` rather than re-deriving sizes. Look at
 supply `commands` and a `searchProvider`.
 
 **Data layer behaviour (`@/data`).**
+
 - Writes resolve once stored locally; only fields whose value changes are stamped.
 - `patch` / `remove` / `restore` on a missing id reject with `DataError('not_found')`; writes to
   server-owned collections reject with `DataError('read_only')`; invalid values throw `ZodError`.
@@ -307,3 +308,22 @@ features set their own limits. A migration added by any feature must not assume 
 
 **Tests.** Web component tests opt in with `// @vitest-environment jsdom` at the top of the file and
 may use Testing Library. Data-layer tests can use `fake-indexeddb/auto`.
+
+## Addendum: authoritative restore (sync epoch)
+
+These override the sync protocol notes above where they conflict. Details and compatibility
+matrix: `docs/SECURITY.md`, "Authoritative restore".
+
+- The server's `meta.sync_epoch` (migration `020`) is a restore marker. `webfront-restore`
+  rewrites it; `webfront-restore --new-epoch` marks a database put in place by hand.
+- Push, pull and the SSE `hello` all return `epoch` (optional in `api/sync.ts` for old servers).
+  A push with changes must send `epoch`; otherwise, or if it differs, the server answers 409
+  `stale_epoch` (`details: { serverId, epoch }`) and applies nothing. An empty push is a probe.
+- Client (`data/engine.ts` `identify`): unknown epoch on a known server = adopt, keep data; new
+  epoch on the same server, or the server's seq behind our cursor = restored: set the outbox
+  aside, clear synced data, pull from 0 (`LocalStore.resetForRestore`); a different, empty
+  server = re-push everything; a different, non-empty server = restored.
+- Feature code: `onDataReset(listener)` from `@/data` fires in every tab after a reset (restore
+  or sign-out); drop per-device state derived from the old data and cancel pending saves there.
+  Until a tab has run its listeners, its writes reject with `DataError('stale')`. The shell
+  remounts the routed page on `useDataGeneration()` and shows `useRestoreNotice()`.

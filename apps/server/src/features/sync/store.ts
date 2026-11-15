@@ -58,7 +58,16 @@ export interface RecordStoreDeps {
 export interface ServerRecordStore extends RecordStore {
   /** HLC node id used for server-originated writes (16 hex chars). */
   readonly serverNodeId: string;
+  /**
+   * The restore marker (`meta.sync_epoch`, 32 hex chars), read from the database on every call
+   * so it always describes the database actually being served. See `api/sync.ts`.
+   */
+  epoch(): string;
 }
+
+/** `meta` key of the restore marker. `deploy/restore.sh` writes the same key. */
+export const SYNC_EPOCH_KEY = 'sync_epoch';
+const EPOCH_PATTERN = /^[0-9a-f]{32}$/;
 
 type Rejection = Extract<PushResult, { status: 'rejected' }>;
 
@@ -101,6 +110,28 @@ export function createRecordStore(deps: RecordStoreDeps): ServerRecordStore {
   });
 
   const maxSeq = (): number => Number(metaGet('records_seq') ?? '0');
+
+  // Migration 020 creates the epoch; this covers a row deleted or mangled by hand. A missing
+  // or invalid marker is treated like a restore (a fresh value), never silently adopted.
+  db.transaction(() => {
+    const current = metaGet(SYNC_EPOCH_KEY);
+    if (current === undefined || !EPOCH_PATTERN.test(current)) {
+      db.run(
+        `INSERT INTO meta (key, value) VALUES (?, lower(hex(randomblob(16))))
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        SYNC_EPOCH_KEY,
+      );
+      logger.warn('meta.sync_epoch was missing or invalid; wrote a new one', {
+        hadValue: current !== undefined,
+      });
+    }
+  });
+
+  const epoch = (): string => {
+    const value = metaGet(SYNC_EPOCH_KEY);
+    if (!value || !EPOCH_PATTERN.test(value)) throw new Error('meta.sync_epoch is missing');
+    return value;
+  };
 
   // Self-heal: records_seq must never be below a seq already in use (unique index on seq).
   db.transaction(() => {
@@ -295,6 +326,7 @@ export function createRecordStore(deps: RecordStoreDeps): ServerRecordStore {
   return {
     serverNodeId,
     serverId,
+    epoch,
     maxSeq,
     applyChanges,
     writeAsServer,

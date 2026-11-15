@@ -1,5 +1,6 @@
 import {
   DEFAULT_PULL_LIMIT,
+  ERROR_CODES,
   MAX_PUSH_CHANGES,
   type PullResponse,
   type PushRequest,
@@ -21,6 +22,19 @@ import { outboxEntryToChange, type LocalStore, type PersistedStatus } from './lo
  * Triggers: start, local writes (debounced), SSE pokes, `online`, tab visible, a slow
  * backstop timer. Failures back off exponentially with jitter. A 401 halts the loop with
  * state `unauthenticated` (local data and outbox are untouched) until `start()` is called again.
+ *
+ * Server identity (see `identify`): every response carries the server's `serverId` and
+ * `epoch` (restore marker). A mismatch with what this replica knows stops the cycle before
+ * anything is pushed or merged, and an identity probe (an empty push) decides:
+ * - first contact (nothing known, or an existing replica that knows no epoch yet): adopt it,
+ *   keeping local data, unless the server's seq went backwards (then it is a restore);
+ * - same database, new epoch (or seq went backwards): the database was restored from a
+ *   backup. The restored data is the truth: set the outbox aside, clear local synced data,
+ *   pull from 0 (`LocalStore.resetForRestore`). Nothing local is ever pushed onto it;
+ * - a different, EMPTY database (fresh install): re-push everything to repopulate it;
+ * - a different, non-empty database: treated as a restore as well.
+ * Pushes carry the known epoch; the server refuses a stale one with 409 `stale_epoch`, which
+ * triggers the same probe.
  */
 
 export interface SyncEventHandlers {
@@ -57,8 +71,11 @@ export interface SyncEngineOptions {
 /** Back-to-back cycles one run may do when new work keeps arriving. */
 const MAX_ROUNDS_PER_RUN = 10;
 
-/** Thrown internally when the server's database identity changed mid-cycle. */
-class ServerResetError extends Error {}
+/** Thrown internally when a response shows another server identity: probe, then retry. */
+class ServerChangedError extends Error {}
+
+/** What `identify` concluded about the server. */
+export type ServerVerdict = 'same' | 'adopted' | 'restored' | 'fresh';
 
 export type TriggerReason = 'start' | 'write' | 'poke' | 'online' | 'visible' | 'backstop' | 'manual';
 
@@ -78,6 +95,8 @@ export class SyncEngine {
   private clientIdCache: string | null = null;
   /** Check the server's identity at the next cycle (set on start and on SSE hello). */
   private verifyServer = true;
+  /** A response showed the server's seq behind our cursor: the database went back in time. */
+  private suspectRestore = false;
 
   constructor(
     private readonly local: LocalStore,
@@ -239,49 +258,81 @@ export class SyncEngine {
   }
 
   /**
-   * Compare the server's identity with what we know. On a change (database replaced), or if
-   * the server's seq went backwards (restored from a backup), reset and re-push everything.
-   * `seqCheck` pairs the server's maxSeq from a response with our cursor read BEFORE that
-   * request was sent: every seq we had pulled then existed on the server, so a correct server
-   * always answers maxSeq >= cursor. Anything less means its database went back in time.
+   * Decide what the server's identity means for this replica (see the class comment) and
+   * act on it. `cursorBefore` is our cursor read BEFORE the probe was sent: every seq we had
+   * pulled then existed on the server, so a server answering `maxSeq < cursorBefore` went back
+   * in time (restored without a new epoch, e.g. a manual file copy).
    */
-  private async checkServer(
-    serverId: string,
-    seqCheck?: { maxSeq: number; cursorBefore: number },
-  ): Promise<boolean> {
-    const known = await this.local.knownServerId();
-    if (known === null) {
-      await this.local.rememberServerId(serverId);
-      return false;
+  private async identify(
+    server: { serverId: string; epoch?: string | undefined; maxSeq: number },
+    cursorBefore: number,
+  ): Promise<ServerVerdict> {
+    const knownId = await this.local.knownServerId();
+    const knownEpoch = await this.local.knownEpoch();
+    const regressed = this.suspectRestore || server.maxSeq < cursorBefore;
+    this.suspectRestore = false;
+
+    if (knownId === null) {
+      // A replica that never synced (new device, or after sign-out): nothing to compare.
+      await this.local.rememberServer(server.serverId, server.epoch);
+      return 'adopted';
     }
-    const regressed = seqCheck !== undefined && seqCheck.maxSeq < seqCheck.cursorBefore;
-    if (known !== serverId || regressed) {
-      console.warn('@/data: server database changed; re-syncing everything');
-      await this.local.resetForNewServer(serverId);
-      return true;
+    if (knownId === server.serverId) {
+      const epochChanged =
+        server.epoch !== undefined && knownEpoch !== null && server.epoch !== knownEpoch;
+      if (!epochChanged && !regressed) {
+        if (server.epoch !== undefined && knownEpoch === null) {
+          // First contact after this client learned about epochs: adopt WITHOUT discarding,
+          // so deploying the epoch never costs a device its unsynced edits.
+          await this.local.rememberEpoch(server.epoch);
+          return 'adopted';
+        }
+        return 'same';
+      }
+    } else if (server.maxSeq === 0) {
+      console.warn('@/data: new, empty server database; re-pushing this device\'s data');
+      await this.local.resetForNewServer(server.serverId, server.epoch);
+      return 'fresh';
     }
-    return false;
+    console.warn('@/data: the server database was restored; replacing local data with it');
+    await this.local.resetForRestore({ serverId: server.serverId, epoch: server.epoch });
+    return 'restored';
+  }
+
+  /** True when a response's identity differs from what this replica knows. */
+  private async identityChanged(serverId: string, epoch: string | undefined): Promise<boolean> {
+    const knownId = await this.local.knownServerId();
+    if (knownId !== null && knownId !== serverId) return true;
+    if (epoch === undefined) return false; // a server that predates epochs
+    return (await this.local.knownEpoch()) !== epoch;
+  }
+
+  /** Empty push: the server's identity and maxSeq, then `identify`. */
+  private async probe(clientId: string): Promise<void> {
+    const cursorBefore = await this.local.cursor();
+    const res = await this.transport.push({ clientId, changes: [] });
+    await this.identify(res, cursorBefore);
   }
 
   private async cycle(): Promise<void> {
     const clientId = this.clientIdCache ?? (await this.local.clientId());
-    if (this.verifyServer) {
-      // After start or an SSE (re)connect, ask the server for its identity and maxSeq with an
-      // empty push, so a replaced or restored database is noticed even with nothing to push.
-      const cursorBefore = await this.local.cursor();
-      const res = await this.transport.push({ clientId, changes: [] });
-      await this.checkServer(res.serverId, { maxSeq: res.maxSeq, cursorBefore });
-      this.verifyServer = false;
-    }
     for (let attempt = 0; ; attempt++) {
       try {
+        if (this.verifyServer) {
+          // After start, an SSE (re)connect or an identity mismatch: ask the server who it is
+          // before pushing anything, so a restored database is noticed even with nothing to push.
+          await this.probe(clientId);
+          this.verifyServer = false;
+        }
         await this.pushAll(clientId);
         await this.pullAll();
         if ((await this.local.pendingCount()) > 0) this.again = true;
         return;
       } catch (err) {
-        // After a reset the outbox holds everything and the cursor is 0: start over once.
-        if (err instanceof ServerResetError && attempt < 2) continue;
+        if (err instanceof ServerChangedError && attempt < 3) {
+          this.verifyServer = true;
+          continue;
+        }
         throw err;
       }
     }
@@ -293,12 +344,29 @@ export class SyncEngine {
       const batch = await this.local.outboxBatch(this.o.pushMaxChanges, this.o.pushMaxBytes);
       if (batch.length === 0) return;
       const cursorBefore = await this.local.cursor();
-      const res = await this.transport.push({ clientId, changes: batch.map(outboxEntryToChange) });
-      // The batch was processed by whichever server answered, so ack it before any reset.
-      const reset = await this.checkServer(res.serverId, { maxSeq: res.maxSeq, cursorBefore });
+      const epoch = await this.local.knownEpoch();
+      let res: PushResponse;
+      try {
+        res = await this.transport.push({
+          clientId,
+          ...(epoch !== null ? { epoch } : {}),
+          changes: batch.map(outboxEntryToChange),
+        });
+      } catch (err) {
+        // The database was restored since we last synced: nothing was applied. Probe.
+        if (err instanceof ApiRequestError && err.code === ERROR_CODES.staleEpoch) {
+          throw new ServerChangedError();
+        }
+        throw err;
+      }
+      // The batch was processed by whichever server answered (it accepted our epoch, or it
+      // predates epochs), so ack it before anything else.
       const matched = await this.local.ackPush(batch, res.results);
       if (matched === 0) throw new Error('push response did not match the request');
-      if (reset) throw new ServerResetError();
+      if (res.maxSeq < cursorBefore) this.suspectRestore = true;
+      if (this.suspectRestore || (await this.identityChanged(res.serverId, res.epoch))) {
+        throw new ServerChangedError();
+      }
     }
   }
 
@@ -307,7 +375,8 @@ export class SyncEngine {
       if (!this.running) return;
       const since = await this.local.cursor();
       const page = await this.transport.pull(since, this.o.pullLimit);
-      if (await this.checkServer(page.serverId)) throw new ServerResetError();
+      // Never merge a page from a server we have not identified (e.g. restored meanwhile).
+      if (await this.identityChanged(page.serverId, page.epoch)) throw new ServerChangedError();
       if (page.cursor < since) throw new Error('pull returned a cursor behind the request');
       await this.local.applyPull(page);
       if (!page.hasMore) return;
@@ -321,7 +390,8 @@ export class SyncEngine {
     if (!clientId) return;
     this.closeEvents = this.transport.connectEvents(clientId, {
       onHello: () => {
-        // Verified at the start of the next cycle, never concurrently with one.
+        // Verified at the start of the next cycle, never concurrently with one. (The hello's
+        // own serverId/epoch are not trusted on their own: the probe asks the server directly.)
         this.verifyServer = true;
         this.trigger('poke');
       },

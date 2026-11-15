@@ -1,5 +1,11 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
+  ERROR_CODES,
   HLC_ZERO,
+  apiErrorSchema,
+  staleEpochDetailsSchema,
   MAX_CLOCK_DRIFT_MS,
   newId,
   pullResponseSchema,
@@ -13,7 +19,11 @@ import {
 } from '@webfront/shared';
 import { describe, expect, it } from 'vitest';
 import { createTestApp } from '../../../test/helpers.js';
+import { openDatabase } from '../../db/database.js';
+import { loadMigrations, runMigrations } from '../../db/migrate.js';
+import { silentLogger } from '../../logger.js';
 import { createSyncFeature, MAX_PUSH_BODY_BYTES } from './index.js';
+import { createRecordStore } from './store.js';
 
 const NOW = Date.parse('2026-11-14T10:00:00.000Z');
 const A = 'aaaaaaaaaaaaaaaa';
@@ -30,12 +40,17 @@ async function setup(opts: { signedIn?: boolean; heartbeatMs?: number } = {}) {
     features: [{ name: 'sync', register: feature }],
     signedIn: opts.signedIn ?? true,
   });
-  const push = async (changes: RecordChange[], clientId = A): Promise<PushResponse> => {
-    const res = await app.request('/api/sync/push', {
+  const epoch = () =>
+    ctx.db.get<{ value: string }>(`SELECT value FROM meta WHERE key = 'sync_epoch'`)!.value;
+  /** Raw push; `epoch: undefined` sends none (an old client). */
+  const pushRaw = (body: Record<string, unknown>) =>
+    app.request('/api/sync/push', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ clientId, changes }),
+      body: JSON.stringify(body),
     });
+  const push = async (changes: RecordChange[], clientId = A): Promise<PushResponse> => {
+    const res = await pushRaw({ clientId, epoch: epoch(), changes });
     expect(res.status).toBe(200);
     return pushResponseSchema.parse(await res.json());
   };
@@ -59,6 +74,8 @@ async function setup(opts: { signedIn?: boolean; heartbeatMs?: number } = {}) {
   return {
     app,
     ctx,
+    epoch,
+    pushRaw,
     push,
     pull,
     pullAll,
@@ -603,6 +620,7 @@ describe('records.changed events and SSE', () => {
     expect(hello.event).toBe('hello');
     expect(syncHelloEventSchema.parse(hello.data)).toEqual({
       serverId: t.ctx.records.serverId(),
+      epoch: t.epoch(),
       maxSeq: 0,
     });
     expect(listeners).toBe(2);
@@ -638,6 +656,174 @@ describe('records.changed events and SSE', () => {
     expect(parseBlock(await s2.next()).event).toBe('hello');
     await t.ctx.close();
     expect(await s2.next()).toBe('<eof>');
+  });
+});
+
+describe('restore marker (epoch)', () => {
+  const EPOCH = /^[0-9a-f]{32}$/;
+
+  it('a fresh database has an epoch, distinct per database', async () => {
+    const t1 = await setup();
+    const t2 = await setup();
+    expect(t1.epoch()).toMatch(EPOCH);
+    expect(t2.epoch()).toMatch(EPOCH);
+    expect(t1.epoch()).not.toBe(t2.epoch());
+  });
+
+  it('migration 020 adds an epoch to an existing database without touching its data', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'wf-mig-'));
+    const migDir = path.join(dir, 'migrations');
+    mkdirSync(migDir);
+    // An "existing deployment": every migration except 020 already applied, with data.
+    for (const m of loadMigrations()) {
+      if (m.version !== 20) writeFileSync(path.join(migDir, m.file), m.sql);
+    }
+    const db = openDatabase(':memory:');
+    try {
+      runMigrations(db, undefined, migDir);
+      db.run(
+        `INSERT INTO records (collection, id, data, clocks, deleted, created_at, updated_at, seq)
+         VALUES ('tasks', 'x', '{}', '{}', 0, ?, ?, 7)`,
+        CREATED,
+        CREATED,
+      );
+      db.run(`UPDATE meta SET value = '7' WHERE key = 'records_seq'`);
+      const serverIdBefore = db.get<{ value: string }>(
+        `SELECT value FROM meta WHERE key = 'server_id'`,
+      )!.value;
+      expect(db.get(`SELECT value FROM meta WHERE key = 'sync_epoch'`)).toBeUndefined();
+
+      expect(runMigrations(db).applied).toEqual([20]);
+      const meta = Object.fromEntries(
+        db
+          .all<{ key: string; value: string }>('SELECT key, value FROM meta')
+          .map((r) => [r.key, r.value]),
+      );
+      expect(meta.sync_epoch).toMatch(EPOCH);
+      expect(meta.server_id).toBe(serverIdBefore);
+      expect(meta.records_seq).toBe('7');
+      expect(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM records')!.n).toBe(1);
+    } finally {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('migration 020 keeps an epoch already written (restore.sh on a pre-020 backup)', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'wf-mig-'));
+    const migDir = path.join(dir, 'migrations');
+    mkdirSync(migDir);
+    for (const m of loadMigrations()) {
+      if (m.version !== 20) writeFileSync(path.join(migDir, m.file), m.sql);
+    }
+    const db = openDatabase(':memory:');
+    try {
+      runMigrations(db, undefined, migDir);
+      db.run(`INSERT INTO meta (key, value) VALUES ('sync_epoch', ?)`, 'ab'.repeat(16));
+      runMigrations(db);
+      expect(db.get(`SELECT value FROM meta WHERE key = 'sync_epoch'`)).toEqual({
+        value: 'ab'.repeat(16),
+      });
+    } finally {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('the store repairs a missing or invalid epoch with a fresh one', async () => {
+    const t = await setup();
+    const store = createRecordStore({ db: t.ctx.db, events: t.ctx.events, logger: silentLogger });
+    t.ctx.db.run(`DELETE FROM meta WHERE key = 'sync_epoch'`);
+    const repaired = createRecordStore({
+      db: t.ctx.db,
+      events: t.ctx.events,
+      logger: silentLogger,
+    });
+    const first = repaired.epoch();
+    expect(first).toMatch(EPOCH);
+    t.ctx.db.run(`UPDATE meta SET value = 'not-hex' WHERE key = 'sync_epoch'`);
+    expect(() => store.epoch()).toThrow();
+    const again = createRecordStore({ db: t.ctx.db, events: t.ctx.events, logger: silentLogger });
+    expect(again.epoch()).toMatch(EPOCH);
+    expect(again.epoch()).not.toBe(first);
+  });
+
+  it('pull, push and the SSE hello all report it', async () => {
+    const t = await setup();
+    const res = await t.push([taskCreate(newId(), 'x', hlc(-1))]);
+    expect(res.epoch).toBe(t.epoch());
+    expect((await t.pull()).epoch).toBe(t.epoch());
+    const probe = await t.pushRaw({ clientId: A, changes: [] });
+    expect(pushResponseSchema.parse(await probe.json()).epoch).toBe(t.epoch());
+    // (hello: see the SSE test above)
+  });
+
+  it('rejects a push with a wrong or missing epoch with 409 stale_epoch and applies nothing', async () => {
+    const t = await setup();
+    const id = newId();
+    await t.push([taskCreate(id, 'before', hlc(-2000))]);
+    const seq = t.ctx.records.maxSeq();
+    const events: unknown[] = [];
+    t.ctx.events.on('records.changed', (p) => events.push(p));
+
+    const attempts: Array<Record<string, unknown>> = [
+      {
+        clientId: A,
+        epoch: 'f'.repeat(32),
+        changes: [fieldChange(id, { deleted: [true, hlc(-1)] })],
+      },
+      // An old client: no epoch field at all.
+      { clientId: A, changes: [fieldChange(id, { deleted: [true, hlc(-1)] })] },
+      { clientId: A, changes: [taskCreate(newId(), 'new', hlc(-1))] },
+    ];
+    for (const body of attempts) {
+      const res = await t.pushRaw(body);
+      expect(res.status).toBe(409);
+      const err = apiErrorSchema.parse(await res.json()).error;
+      expect(err.code).toBe(ERROR_CODES.staleEpoch);
+      expect(staleEpochDetailsSchema.parse(err.details)).toEqual({
+        serverId: t.ctx.records.serverId(),
+        epoch: t.epoch(),
+      });
+    }
+    expect(t.ctx.records.maxSeq()).toBe(seq);
+    expect(t.ctx.records.get('tasks', id)?.deleted).toBe(false);
+    expect(t.ctx.records.list('tasks')).toHaveLength(1);
+    expect(events).toEqual([]);
+  });
+
+  it('accepts the current epoch, and an empty probe without one', async () => {
+    const t = await setup();
+    const id = newId();
+    const ok = await t.pushRaw({
+      clientId: A,
+      epoch: t.epoch(),
+      changes: [taskCreate(id, 'ok', hlc(-1))],
+    });
+    expect(ok.status).toBe(200);
+    expect(t.ctx.records.get('tasks', id)?.title).toBe('ok');
+    const probe = await t.pushRaw({ clientId: A, changes: [] });
+    expect(probe.status).toBe(200);
+    const stale = await t.pushRaw({ clientId: A, epoch: 'f'.repeat(32), changes: [] });
+    expect(stale.status).toBe(200); // a probe applies nothing, so it is always answered
+    expect(pushResponseSchema.parse(await stale.json()).epoch).toBe(t.epoch());
+  });
+
+  it('a rewritten epoch (what restore.sh does) takes effect immediately', async () => {
+    const t = await setup();
+    const old = t.epoch();
+    t.ctx.db.run(
+      `INSERT INTO meta (key, value) VALUES ('sync_epoch', lower(hex(randomblob(16))))
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    );
+    expect(t.epoch()).not.toBe(old);
+    const res = await t.pushRaw({
+      clientId: A,
+      epoch: old,
+      changes: [taskCreate(newId(), 'x', hlc(-1))],
+    });
+    expect(res.status).toBe(409);
+    expect((await t.pull()).epoch).toBe(t.epoch());
   });
 });
 

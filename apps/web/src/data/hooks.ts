@@ -1,6 +1,7 @@
+import { useSyncExternalStore } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { stableStringify, type CollectionName, type RecordOf } from '@webfront/shared';
-import { DEFAULT_STATUS } from './local';
+import { DEFAULT_STATUS, type RestoreNotice } from './local';
 import { getLocal } from './runtime';
 import type { DataReader, QueryOptions, SyncStatus } from './types';
 
@@ -55,3 +56,27 @@ export const reader: DataReader = {
   get: (collection, id) => getLocal().get(collection, id),
   list: (collection, options) => getLocal().list(collection, options),
 };
+
+/**
+ * The restore notice (null when there is none or it was dismissed). Live in every tab.
+ */
+export function useRestoreNotice(): RestoreNotice | null | undefined {
+  return useLiveQuery(() => getLocal().restoreNotice(), []);
+}
+
+/**
+ * This tab's data generation: changes once per reset (restore or sign-out), after the reset
+ * listeners ran. Key a subtree on it to remount editors and forms that hold stale data.
+ */
+export function useDataGeneration(): number {
+  return useSyncExternalStore(subscribeGeneration, readGeneration, readGeneration);
+}
+
+function subscribeGeneration(onChange: () => void): () => void {
+  // Listeners run before the generation is recorded; read it on the next microtask.
+  return getLocal().onReset(() => queueMicrotask(onChange));
+}
+
+function readGeneration(): number {
+  return getLocal().generation ?? 0;
+}

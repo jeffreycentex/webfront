@@ -21,6 +21,16 @@
  * collections that changed (sync-leader tab only). `clearLocalData()` also wipes per-device
  * state: `webfront.*` localStorage keys and the wiki attachment cache database.
  *
+ * ## Server restore (`onDataReset`)
+ *
+ * When the server database is restored from a backup (`webfront-restore` writes a new epoch),
+ * the restored data is the truth: the sync leader sets the outbox aside, clears every synced
+ * collection and pulls from 0. Every tab then runs its `onDataReset` listeners (drop per-device
+ * state derived from the old data; cancel pending editor saves) and live queries re-render with
+ * the restored data. Until a tab has run them, its writes reject with `DataError('stale')`.
+ * The shell shows `useRestoreNotice()` and offers `getSetAsideChanges()` as a JSON download.
+ * Sign-out (`clearLocalData`) fires the same event with reason `clear`.
+ *
  * ## Merge hooks (wiki three-way merge)
  *
  * Both hooks run only while PULLING, inside the same IndexedDB transaction that stores the
@@ -64,15 +74,27 @@ export type {
   SyncStatus,
 } from './types';
 export type {
+  DataResetEvent,
+  DataResetReason,
   FieldResolverSource,
   RecordResolver,
   RecordResolverArgs,
   ResolverHelpers,
+  RestoreNotice,
+  SetAsideBatch,
 } from './local';
 export { DataError } from './local';
 
 // Hooks and non-hook reads
-export { useCollection, useRecord, useLiveData, useSyncStatus, reader } from './hooks';
+export {
+  useCollection,
+  useRecord,
+  useLiveData,
+  useSyncStatus,
+  useRestoreNotice,
+  useDataGeneration,
+  reader,
+} from './hooks';
 
 // Writes: local, offline-safe, resolve once stored and queued (never wait for the network).
 export const put: DataWriter['put'] = (collection, values, options) =>
@@ -92,6 +114,10 @@ export {
   clearLocalData,
   clearDeviceState,
   onPullApplied,
+  onDataReset,
+  dataGeneration,
+  dismissRestoreNotice,
+  getSetAsideChanges,
   registerFieldResolvers,
   registerRecordResolver,
   _dbForTests,

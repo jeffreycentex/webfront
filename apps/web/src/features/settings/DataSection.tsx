@@ -17,6 +17,7 @@ export default function DataSection() {
     <div className="flex flex-col gap-4 text-sm">
       <SyncDetails />
       <ExportImport />
+      <RecentlyDeletedLink />
       <Cleanup />
       <ClearLocal />
     </div>
@@ -167,6 +168,21 @@ function ExportImport() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function RecentlyDeletedLink() {
+  return (
+    <div className="max-w-xl">
+      <h3 className="label-caps mb-1 text-fg-3">Deleted items</h3>
+      <p className="text-fg-3">
+        Deleted bookmarks, post-its, tasks, lists, pages and feeds are kept, so you can bring them
+        back.{' '}
+        <a href="#deleted" className="text-accent-text hover:underline">
+          Open Recently deleted
+        </a>
+      </p>
     </div>
   );
 }

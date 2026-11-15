@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { reader } from '@/data';
+import { onDataReset, reader } from '@/data';
 import { saveBody, snapshotPage, type WikiPage } from './data';
 import { bodyStore, wikiIO } from './runtime';
 
@@ -12,6 +12,10 @@ import { bodyStore, wikiIO } from './runtime';
  * cleared once the text is stored; the draft is flushed on blur, when the tab is hidden or
  * closed, and when the page component unmounts (route change). A backup left behind by a tab
  * that closed mid-edit is merged back in the next time the page is opened.
+ *
+ * After a data reset (server restore, `onDataReset`) the editor is dead: its pending save is
+ * cancelled and later flushes do nothing, so text typed against the old page is never written
+ * onto the restored one (the shell remounts the page with the restored data).
  */
 
 export type SaveState = 'saved' | 'unsaved' | 'saving' | 'error';
@@ -84,6 +88,19 @@ export function useBodyEditor(page: WikiPage): BodyEditor {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chain = useRef<Promise<void>>(Promise.resolve());
   const edited = useRef(false);
+  /** Set by a data reset: this editor's text belongs to data that no longer exists. */
+  const dead = useRef(false);
+
+  useEffect(
+    () =>
+      onDataReset(() => {
+        dead.current = true;
+        edited.current = false;
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = null;
+      }),
+    [],
+  );
 
   const pushReplace = useCallback((text: string) => {
     draftRef.current = text;
@@ -96,6 +113,7 @@ export function useBodyEditor(page: WikiPage): BodyEditor {
       clearTimeout(timer.current);
       timer.current = null;
     }
+    if (dead.current) return;
     const text = draftRef.current;
     if (text === savedRef.current) {
       writeBackup(id, null);
@@ -133,7 +151,7 @@ export function useBodyEditor(page: WikiPage): BodyEditor {
 
   const setDraft = useCallback(
     (text: string) => {
-      if (text === draftRef.current) return;
+      if (dead.current || text === draftRef.current) return;
       draftRef.current = text;
       edited.current = true;
       setDraftState(text);
@@ -147,7 +165,7 @@ export function useBodyEditor(page: WikiPage): BodyEditor {
 
   // A body that changed elsewhere (another device, the reconciler): adopt it when clean.
   useEffect(() => {
-    if (page.body === savedRef.current) return;
+    if (dead.current || page.body === savedRef.current) return;
     if (draftRef.current === savedRef.current) {
       savedRef.current = page.body;
       fromRef.current = page.body;

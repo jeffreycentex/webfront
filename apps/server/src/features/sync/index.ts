@@ -1,10 +1,12 @@
 import {
+  ERROR_CODES,
   SYNC_EVENT,
   pullQuerySchema,
   pushRequestSchema,
   type PullResponse,
   type PushResponse,
   type SyncChangedEvent,
+  type StaleEpochDetails,
   type SyncHelloEvent,
 } from '@webfront/shared';
 import { Hono } from 'hono';
@@ -20,9 +22,12 @@ import { createRecordStore } from './store.js';
  *
  * Installs the RecordStore (store.ts) and mounts under /api/sync (protocol in
  * packages/shared/src/api/sync.ts):
- * - POST /push  field-level changes, merged per-field LWW; per-change applied/unchanged/rejected
+ * - POST /push  field-level changes, merged per-field LWW; per-change applied/unchanged/rejected.
+ *               A push with changes must carry the current `epoch` (restore marker), else 409
+ *               `stale_epoch` and nothing is applied. An empty push is an identity probe.
  * - GET  /pull  full records with seq > since, in seq order
  * - GET  /events SSE: `hello`, then `changed` pokes; `: ping` heartbeats
+ * Every response (push, pull, hello) reports `serverId` and `epoch`.
  */
 
 export const SSE_HEARTBEAT_MS = 25_000;
@@ -42,14 +47,13 @@ export interface SyncFeatureOptions {
 export function createSyncFeature(options: SyncFeatureOptions = {}) {
   return (app: App, ctx: AppContext): void => {
     const log = ctx.logger.child({ feature: 'sync' });
-    ctx.installRecordStore(
-      createRecordStore({
-        db: ctx.db,
-        events: ctx.events,
-        logger: log,
-        ...(options.now ? { now: options.now } : {}),
-      }),
-    );
+    const store = createRecordStore({
+      db: ctx.db,
+      events: ctx.events,
+      logger: log,
+      ...(options.now ? { now: options.now } : {}),
+    });
+    ctx.installRecordStore(store);
 
     const heartbeatMs = options.heartbeatMs ?? SSE_HEARTBEAT_MS;
     const openStreams = new Set<() => void>();
@@ -74,11 +78,30 @@ export function createSyncFeature(options: SyncFeatureOptions = {}) {
       }),
       async (c) => {
         const body = await parseJson(c, pushRequestSchema);
-        const results = ctx.records.applyChanges(body.changes, body.clientId);
+        // Checked and applied synchronously (no await in between), so the epoch cannot change
+        // under the push. Old clients send no epoch at all and are rejected the same way, so a
+        // stale tab cannot push tombstones or edits from before a restore.
+        const epoch = store.epoch();
+        if (body.changes.length > 0 && body.epoch !== epoch) {
+          log.info('push rejected: stale epoch', {
+            clientId: body.clientId,
+            changes: body.changes.length,
+            sentEpoch: body.epoch === undefined ? 'none' : 'other',
+          });
+          const details: StaleEpochDetails = { serverId: store.serverId(), epoch };
+          throw new AppError(
+            409,
+            ERROR_CODES.staleEpoch,
+            'Changes were not saved to the server: reload the app on this device (it is out of date, or the server was restored from a backup).',
+            details,
+          );
+        }
+        const results = store.applyChanges(body.changes, body.clientId);
         const res: PushResponse = {
-          serverId: ctx.records.serverId(),
+          serverId: store.serverId(),
+          epoch,
           results,
-          maxSeq: ctx.records.maxSeq(),
+          maxSeq: store.maxSeq(),
         };
         return c.json(res);
       },
@@ -86,8 +109,8 @@ export function createSyncFeature(options: SyncFeatureOptions = {}) {
 
     r.get('/pull', ctx.requireAuth, (c) => {
       const { since, limit } = parseQuery(c, pullQuerySchema);
-      const page = ctx.records.pull(since, limit);
-      const res: PullResponse = { serverId: ctx.records.serverId(), ...page };
+      const page = store.pull(since, limit);
+      const res: PullResponse = { serverId: store.serverId(), epoch: store.epoch(), ...page };
       return c.json(res);
     });
 
@@ -131,8 +154,9 @@ export function createSyncFeature(options: SyncFeatureOptions = {}) {
         cleanups.push(() => clearInterval(timer));
 
         const hello: SyncHelloEvent = {
-          serverId: ctx.records.serverId(),
-          maxSeq: ctx.records.maxSeq(),
+          serverId: store.serverId(),
+          epoch: store.epoch(),
+          maxSeq: store.maxSeq(),
         };
         void stream.writeSSE({ event: SYNC_EVENT.hello, data: JSON.stringify(hello) });
 

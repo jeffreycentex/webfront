@@ -1,8 +1,15 @@
+import { liveQuery } from 'dexie';
 import type Dexie from 'dexie';
 import type { CollectionName } from '@webfront/shared';
 import { createDatabase, DB_NAME } from './db';
 import { SyncEngine } from './engine';
-import { LocalStore, type FieldResolverSource, type RecordResolver } from './local';
+import {
+  LocalStore,
+  type DataResetEvent,
+  type FieldResolverSource,
+  type RecordResolver,
+  type SetAsideBatch,
+} from './local';
 import { createHttpTransport } from './transport';
 
 /**
@@ -31,14 +38,31 @@ let waitAbort: AbortController | null = null;
 
 export function getLocal(): LocalStore {
   if (!local) {
-    local = new LocalStore(createDatabase(DB_NAME));
-    local.onLocalWrite(() => {
+    const store = new LocalStore(createDatabase(DB_NAME));
+    local = store;
+    store.onLocalWrite(() => {
       if (isLeader) engine?.trigger('write');
       else post({ type: 'write' });
     });
     ensureChannel();
+    watchGeneration(store);
   }
   return local;
+}
+
+/**
+ * Every tab follows a reset made by the sync-leader tab (or by sign-out in another tab): a
+ * live query on the stored data generation (Dexie propagates IndexedDB changes across tabs)
+ * runs this tab's reset listeners, so open editors drop their stale text. Its first run also
+ * records this tab's generation and finishes a reset interrupted by a crash or reload. It
+ * starts asynchronously, after the importing modules (features) have registered listeners.
+ */
+function watchGeneration(store: LocalStore): void {
+  if (typeof indexedDB === 'undefined') return;
+  liveQuery(() => store.storedGeneration()).subscribe({
+    next: () => void store.acknowledgeGeneration().catch(() => undefined),
+    error: (err: unknown) => console.warn('@/data: generation watch failed', err),
+  });
 }
 
 function getEngine(): SyncEngine {
@@ -212,6 +236,33 @@ export async function clearDeviceState(): Promise<void> {
 
 /** Service-worker runtime caches with authenticated API responses (see vite.config.ts). */
 export const PRIVATE_CACHES = ['wf-attachments', 'wf-favicons'] as const;
+
+/**
+ * Subscribe to "this device's local data was reset": after a server restore (every synced
+ * collection was replaced by the restored data and unsynced changes were set aside) or after
+ * sign-out cleared it. Fires once per reset in EVERY tab, synchronously before that tab accepts
+ * writes again. Use it to drop per-device state derived from the old data (merge bases, draft
+ * backups) and to cancel pending saves of open editors: until a tab has run these listeners,
+ * its writes are rejected with `DataError('stale')`. Register at module load.
+ */
+export function onDataReset(listener: (event: DataResetEvent) => void): () => void {
+  return getLocal().onReset(listener);
+}
+
+/** The data generation this tab is at (0 before any reset; undefined until known). */
+export function dataGeneration(): number | undefined {
+  return getLocal().generation;
+}
+
+/** Hide the restore notice (in every tab). The set-aside changes are kept. */
+export async function dismissRestoreNotice(): Promise<void> {
+  await getLocal().dismissRestoreNotice();
+}
+
+/** Unsynced changes set aside by restore resets, newest batch last (for download as JSON). */
+export async function getSetAsideChanges(): Promise<SetAsideBatch[]> {
+  return getLocal().setAsideChanges();
+}
 
 /**
  * Subscribe to "a pulled page was durably applied": called with the collections whose records

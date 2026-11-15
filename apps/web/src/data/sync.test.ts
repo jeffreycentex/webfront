@@ -10,8 +10,11 @@ import {
 import { afterEach, describe, expect, it } from 'vitest';
 import { OUTBOX, REJECTED, type OutboxEntry } from './db';
 import {
+  backupServer,
   createTestClient,
   createTestServer,
+  restoreServer,
+  serverEpoch,
   sync,
   type TestClient,
   type TestServer,
@@ -473,7 +476,7 @@ describe('convergence', () => {
 });
 
 describe('server identity and auth', () => {
-  it('re-pushes everything and pulls from 0 when the serverId changes', async () => {
+  it('re-pushes everything into a different, EMPTY server database (fresh install)', async () => {
     const s1 = await server();
     const c = client(s1);
     const kept = await c.local.put('tasks', task('kept'));
@@ -485,55 +488,70 @@ describe('server identity and auth', () => {
     expect(await c.local.cursor()).toBeGreaterThan(0);
     expect(await c.local.get('serviceStatuses', bm)).toBeDefined();
 
-    const s2 = await server(); // a different database
-    const other = newId();
-    s2.ctx.records.writeAsServer('serviceStatuses', [{ id: other, fields: { bookmarkId: other } }]);
+    const s2 = await server(); // a different, empty database
     c.server = s2;
-    await sync(c);
+    c.sse!.onHello({ serverId: s2.ctx.records.serverId(), maxSeq: 0 });
+    await c.engine.syncNow();
 
     expect(c.engine.currentStatus.state).toBe('idle');
     expect(await c.local.knownServerId()).toBe(s2.ctx.records.serverId());
+    expect(await c.local.knownEpoch()).toBe(serverEpoch(s2));
     expect(s2.ctx.records.get('tasks', kept.id)?.title).toBe('kept');
     expect(s2.ctx.records.get('tasks', del.id)?.deleted).toBe(true);
-    // Server-owned data from the old server is gone; the new server's is present.
+    // Server-owned data from the old server is gone.
     expect(await c.local.get('serviceStatuses', bm)).toBeUndefined();
-    expect(await c.local.get('serviceStatuses', other)).toBeDefined();
     expect(await c.local.cursor()).toBe(s2.ctx.records.maxSeq());
     expect(await outbox(c)).toEqual([]);
+    expect(await c.local.restoreNotice()).toBeNull();
   });
 
-  it('recovers when the server was restored from an older backup with the same serverId', async () => {
+  it('treats a different, NON-empty server database like a restore: nothing local is pushed', async () => {
     const s1 = await server();
     const c = client(s1);
-    const rec = await c.local.put('tasks', task('v0'));
+    const mine = await c.local.put('tasks', task('mine'));
     await sync(c);
-    // "Restore": a fresh database carrying the same server_id (backup taken before the record).
-    const s2 = await server();
-    s2.ctx.db.run(`UPDATE meta SET value = ? WHERE key = 'server_id'`, s1.ctx.records.serverId());
-    c.server = s2;
-    await c.local.patch('tasks', rec.id, { notes: 'after restore' });
-    await sync(c);
-    expect(s2.ctx.records.get('tasks', rec.id)).toMatchObject({ title: 'v0', notes: 'after restore' });
-    expect(await outbox(c)).toEqual([]);
-    expect((await c.local.readStatus()).rejectedChanges).toBe(0);
-  });
+    await c.local.patch('tasks', mine.id, { notes: 'unsynced' });
 
-  it('an SSE hello makes the next cycle verify the server, catching a restore with nothing to push', async () => {
-    const s1 = await server();
-    const c = client(s1);
-    const rec = await c.local.put('tasks', task('v0'));
-    await sync(c);
-    expect(c.sse).not.toBeNull();
     const s2 = await server();
-    s2.ctx.db.run(`UPDATE meta SET value = ? WHERE key = 'server_id'`, s1.ctx.records.serverId());
+    const theirs = newId();
+    s2.ctx.records.writeAsServer('serviceStatuses', [{ id: theirs, fields: { bookmarkId: theirs } }]);
     c.server = s2;
-    await sync(c); // no hello yet: nothing to push, pull finds nothing new
-    expect(s2.ctx.records.get('tasks', rec.id)).toBeUndefined();
-
-    c.sse!.onHello({ serverId: s2.ctx.records.serverId(), maxSeq: 0 });
+    c.sse!.onHello({ serverId: s2.ctx.records.serverId(), maxSeq: 1 });
     await c.engine.syncNow();
+
+    expect(s2.ctx.records.get('tasks', mine.id)).toBeUndefined();
+    expect(await c.local.get('tasks', mine.id, { includeDeleted: true })).toBeUndefined();
+    expect(await c.local.get('serviceStatuses', theirs)).toBeDefined();
+    expect((await c.local.restoreNotice())?.setAside).toBe(1);
+    expect(c.pushes.filter((p) => p.changes > 0 && p.epoch === serverEpoch(s2))).toEqual([]);
+  });
+
+  it('notices a restore from the pull alone (nothing to push), before merging anything', async () => {
+    const s1 = await server();
+    const c = client(s1);
+    const rec = await c.local.put('tasks', task('v0'));
+    await sync(c);
+    const backup = await backupServer(s1);
+    await c.local.patch('tasks', rec.id, { title: 'v1' });
+    await sync(c);
+    const s2 = await restoreServer(backup, { now: T0 });
+    cleanups.push(() => s2.close());
+    c.server = s2;
+    await sync(c); // no hello: the pull's epoch differs, so the cycle probes and resets
+    expect((await c.local.get('tasks', rec.id))?.title).toBe('v0');
     expect(s2.ctx.records.get('tasks', rec.id)?.title).toBe('v0');
     expect(await c.local.cursor()).toBe(s2.ctx.records.maxSeq());
+    expect(await c.local.knownEpoch()).toBe(serverEpoch(s2));
+  });
+
+  it('an SSE hello makes the next cycle probe the server', async () => {
+    const s = await server();
+    const c = client(s);
+    await sync(c);
+    const pushes = c.pushes.length;
+    c.sse!.onHello({ serverId: s.ctx.records.serverId(), epoch: serverEpoch(s), maxSeq: 0 });
+    await c.engine.syncNow();
+    expect(c.pushes.slice(pushes)).toEqual([{ epoch: undefined, changes: 0 }]);
   });
 
   it('pokes from other clients trigger a sync; its own pokes do not', async () => {
