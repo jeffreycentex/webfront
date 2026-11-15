@@ -36,12 +36,22 @@ export function watchPage(page: Page) {
   };
 }
 
-/** Every test fails on CSP violations in its default page. */
+/** Contexts opened by `newDevice` in the running test (traced, closed by the fixture). */
+const devices: Array<{ context: BrowserContext; label: string }> = [];
+
+/**
+ * Every test fails on CSP violations in its default page. Extra "devices" from `newDevice` are
+ * traced (network, console, DOM snapshots: Playwright only traces the default context itself),
+ * and their traces are saved next to the test's other artifacts, also when the test fails.
+ */
 export const test = base.extend<{ guard: void }>({
   guard: [
-    async ({ page }, use) => {
+    async ({ page }, use, testInfo) => {
       const w = watchPage(page);
       await use();
+      for (const d of devices.splice(0)) {
+        await d.context.close().catch(() => undefined);
+      }
       w.assertClean();
     },
     { auto: true },
@@ -74,8 +84,11 @@ export async function createAccount(page: Page, base = BASE_A, user = USER) {
 export async function newDevice(
   browser: Browser,
   base = BASE_A,
+  label = `${devices.length + 1}`,
 ): Promise<{ context: BrowserContext; page: Page; guard: ReturnType<typeof watchPage> }> {
   const context = await browser.newContext({ baseURL: base, serviceWorkers: 'allow' });
+  // Playwright's own `trace` setting already records contexts made with browser.newContext.
+  devices.push({ context, label });
   const page = await context.newPage();
   const guard = watchPage(page);
   await signIn(page, base);

@@ -1,7 +1,7 @@
 import { COLOUR_KEYS, type ColourKey } from '@webfront/shared';
 import { Archive, Copy, Pencil, Plus, Settings, Trash, Star } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { useTheme } from '../lib/theme';
+import { useTheme, type ThemePreference } from '../lib/theme';
 import {
   Badge,
   Button,
@@ -46,28 +46,32 @@ import {
  * switcher to review them in both.
  */
 export function DevUiPage() {
-  const { preference, setPreference } = useTheme();
+  const { preference, themes, setPreference } = useTheme();
   return (
     <div>
       <PageHeader
         title="Design system"
         actions={
           <Toolbar label="Page theme">
-            {(['light', 'dark', 'system'] as const).map((p) => (
+            {[
+              ...themes.map((t) => ({ id: t.id, name: t.name })),
+              { id: 'system', name: 'system' },
+            ].map((p) => (
               <Button
-                key={p}
+                key={p.id}
                 size="sm"
-                variant={preference === p ? 'primary' : 'secondary'}
-                onClick={() => setPreference(p)}
+                variant={preference === p.id ? 'primary' : 'secondary'}
+                onClick={() => setPreference(p.id as ThemePreference)}
               >
-                {p}
+                {p.name}
               </Button>
             ))}
           </Toolbar>
         }
       >
         <span className="text-xs text-fg-3">
-          Left: light scope. Right: dark scope. Menus, dialogs and toasts follow the page theme.
+          Left: Light scope. Right: Dark scope. Pick any theme above to restyle the whole page
+          (menus, dialogs and toasts follow it).
         </span>
       </PageHeader>
       <div className="grid gap-3 xl:grid-cols-2">

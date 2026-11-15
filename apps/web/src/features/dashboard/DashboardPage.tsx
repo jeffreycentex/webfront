@@ -10,10 +10,10 @@ import { useSetting } from './useSetting';
 import { WidgetBoundary } from './WidgetBoundary';
 
 /**
- * Widgets drawn in the narrow side column on wide screens (agenda, shopping, wiki); everything
+ * Widgets drawn in the narrow side column on wide screens (agenda, tasks, shopping, wiki); everything
  * else (bookmarks, services, post-its, widgets from future features) uses the wide main column.
  */
-const SIDE_IDS = new Set(['agenda', 'shopping', 'wiki']);
+const SIDE_IDS = new Set(['agenda', 'tasks', 'shopping', 'wiki']);
 
 /** On phones these come right after the search bar. */
 const PHONE_FIRST = ['shopping', 'agenda'];
@@ -26,6 +26,7 @@ const PHONE_FIRST = ['shopping', 'agenda'];
 const FRAME: Record<string, 'none' | 'plain' | 'panel'> = {
   bookmarks: 'none',
   agenda: 'none',
+  tasks: 'none',
   postits: 'none',
   wiki: 'none',
   shopping: 'plain',

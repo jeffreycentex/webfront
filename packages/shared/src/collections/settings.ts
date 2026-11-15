@@ -45,6 +45,7 @@ export const DASHBOARD_SECTION_IDS = [
   'services',
   'postits',
   'agenda',
+  'tasks',
   'shopping',
   'wiki',
 ] as const;
@@ -100,8 +101,8 @@ export interface ResolvedSection {
 /**
  * Combine the widgets the registered features provide with the saved `dashboard.sections`
  * setting: saved ids first in saved order (ids no feature provides are dropped), then widgets
- * the setting does not know yet in their default order (so a new feature appears without the
- * user doing anything). The `search` entry is the search bar: it is not a widget and always
+ * the setting does not know yet, each placed after its default-order predecessor (so a new
+ * feature appears in its default spot without the user doing anything). The `search` entry is the search bar: it is not a widget and always
  * sits on top, so it is returned separately.
  */
 export function resolveDashboardSections(
@@ -117,9 +118,21 @@ export function resolveDashboardSections(
     seen.add(s.id);
     sections.push({ id: s.id, title: w.title, hidden: s.hidden });
   }
-  for (const w of [...widgets].sort((a, b) => a.order - b.order)) {
-    if (!seen.has(w.id)) sections.push({ id: w.id, title: w.title, hidden: false });
-  }
+  // Widgets the setting does not know yet go right after the widget that precedes them in the
+  // default order (or first, when none does), so a new section lands in its default spot.
+  const byDefault = [...widgets].sort((a, b) => a.order - b.order);
+  byDefault.forEach((w, i) => {
+    if (seen.has(w.id)) return;
+    let at = 0;
+    for (let j = i - 1; j >= 0; j--) {
+      const k = sections.findIndex((s) => s.id === byDefault[j]!.id);
+      if (k >= 0) {
+        at = k + 1;
+        break;
+      }
+    }
+    sections.splice(at, 0, { id: w.id, title: w.title, hidden: false });
+  });
   return { searchHidden: saved.find((s) => s.id === 'search')?.hidden ?? false, sections };
 }
 

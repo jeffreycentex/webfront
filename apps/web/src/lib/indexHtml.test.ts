@@ -22,6 +22,6 @@ describe('index.html and the CSP', () => {
       fileURLToPath(new URL('../../public/theme-init.js', import.meta.url)),
       'utf8',
     );
-    expect(snippet).toContain("localStorage.getItem('wf.theme')");
+    expect(snippet).toContain("getItem('wf.theme')");
   });
 });

@@ -3,9 +3,16 @@
 /*
  * Webfront design tokens. Compact, data-rich, colourful.
  *
- * - Theme is class-based: <html class="dark"> (set before first paint by the inline script in
- *   index.html and kept in sync by src/lib/theme.ts). `.light` / `.dark` on any element re-scope
- *   the tokens (used by the /dev/ui gallery to show both themes side by side).
+ * - Themes: <html data-theme="<id>" class="dark"?> is set before first paint by
+ *   public/theme-init.js and kept in sync by src/lib/theme.ts (the `dark` class mirrors the
+ *   theme's mode, so `dark:` variants keep working). `[data-theme]` (or `.light` / `.dark`) on
+ *   any element re-scopes the tokens (the /dev/ui gallery uses this).
+ *
+ *   ADDING A THEME is a one-place change: append one `[data-theme='<id>'] { ... }` block below
+ *   (copy an existing one: it must define EVERY token) and add one entry to THEMES in
+ *   src/lib/theme.ts (id, name, mode, chrome = its --wf-bg, swatch colours). Nothing else:
+ *   theme-init.js reads a boot cache the app writes. src/lib/themes.test.ts checks WCAG
+ *   contrast for every block here and that each registry entry has a block.
  * - Semantic tokens (`--wf-bg`, `--wf-surface`, ...) are exposed to Tailwind as utilities below:
  *   bg-bg, bg-surface, bg-surface-2, border-line, text-fg, text-fg-2, text-fg-3, bg-accent,
  *   text-accent, bg-accent-soft, text-ok / warn / bad (+ bg-ok-soft ...).
@@ -15,7 +22,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root,
-.light {
+.light,
+[data-theme='light'] {
   /* Surfaces: warm paper, crisp 1px lines */
   --wf-bg: oklch(0.965 0.005 85);
   --wf-surface: oklch(0.995 0.002 85);
@@ -73,7 +81,8 @@
   --wf-pink-soft: oklch(0.945 0.05 350);
 }
 
-.dark {
+.dark,
+[data-theme='dark'] {
   --wf-bg: oklch(0.155 0.014 275);
   --wf-surface: oklch(0.2 0.015 275);
   --wf-surface-2: oklch(0.245 0.016 275);
@@ -126,6 +135,288 @@
   --wf-violet-soft: oklch(0.31 0.065 295);
   --wf-pink: oklch(0.74 0.15 350);
   --wf-pink-soft: oklch(0.31 0.065 350);
+}
+
+/* ===== Extra themes. Blocks must come after `.dark` so they win at equal specificity. ===== */
+
+/* Catppuccin Latte (light). Palette: https://github.com/catppuccin/palette */
+[data-theme='latte'] {
+  --wf-bg: #e6e9ef;
+  --wf-surface: #eff1f5;
+  --wf-surface-2: #dce0e8;
+  --wf-surface-3: #ccd0da;
+  --wf-line: #ccd0da;
+  --wf-line-strong: #acb0be;
+  --wf-fg: #4c4f69;
+  --wf-fg-2: #5c5f77;
+  --wf-fg-3: #5f627a;
+  --wf-accent: #8839ef;
+  --wf-accent-hover: #7c3dd4;
+  --wf-accent-fg: #eff1f5;
+  --wf-accent-soft: #dfd4f4;
+  --wf-accent-text: #7540c4;
+  --wf-ok: #40a02b;
+  --wf-ok-soft: #d3e4d5;
+  --wf-ok-text: #486b54;
+  --wf-warn: #df8e1d;
+  --wf-warn-soft: #ece1d2;
+  --wf-warn-text: #725f55;
+  --wf-bad: #d20f39;
+  --wf-bad-soft: #eacdd7;
+  --wf-bad-text: #af2045;
+  --wf-overlay: rgb(220 224 232 / 0.45);
+  --wf-shadow: 0 1px 2px rgb(220 224 232 / 0.12), 0 8px 28px -4px rgb(220 224 232 / 0.25);
+  --wf-shadow-sm: 0 1px 2px rgb(220 224 232 / 0.14);
+  color-scheme: light;
+
+  --wf-red: #d20f39;
+  --wf-red-soft: #ebd1db;
+  --wf-orange: #fe640b;
+  --wf-orange-soft: #f1ddd4;
+  --wf-amber: #ef7914;
+  --wf-amber-soft: #efe0d6;
+  --wf-yellow: #df8e1d;
+  --wf-yellow-soft: #ede3d7;
+  --wf-lime: #909724;
+  --wf-lime-soft: #e2e4d8;
+  --wf-green: #40a02b;
+  --wf-green-soft: #d7e6d9;
+  --wf-teal: #179299;
+  --wf-teal-soft: #d1e4e8;
+  --wf-cyan: #04a5e5;
+  --wf-cyan-soft: #cee6f3;
+  --wf-blue: #1e66f5;
+  --wf-blue-soft: #d2def5;
+  --wf-indigo: #7287fd;
+  --wf-indigo-soft: #dee2f6;
+  --wf-violet: #8839ef;
+  --wf-violet-soft: #e1d7f4;
+  --wf-pink: #ea76cb;
+  --wf-pink-soft: #eee0ef;
+}
+
+/* Catppuccin Frappe (dark) */
+[data-theme='frappe'] {
+  --wf-bg: #292c3c;
+  --wf-surface: #303446;
+  --wf-surface-2: #414559;
+  --wf-surface-3: #51576d;
+  --wf-line: #51576d;
+  --wf-line-strong: #626880;
+  --wf-fg: #c6d0f5;
+  --wf-fg-2: #b5bfe2;
+  --wf-fg-3: #a9b2d3;
+  --wf-accent: #ca9ee6;
+  --wf-accent-hover: #d5b1eb;
+  --wf-accent-fg: #232634;
+  --wf-accent-soft: #554d6c;
+  --wf-accent-text: #d9b9ed;
+  --wf-ok: #a6d189;
+  --wf-ok-soft: #485353;
+  --wf-ok-text: #a6d189;
+  --wf-warn: #e5c890;
+  --wf-warn-soft: #545255;
+  --wf-warn-text: #e5c890;
+  --wf-bad: #e78284;
+  --wf-bad-soft: #554452;
+  --wf-bad-text: #eea5a6;
+  --wf-overlay: rgb(35 38 52 / 0.62);
+  --wf-shadow: 0 1px 2px rgb(35 38 52 / 0.4), 0 8px 28px -4px rgb(35 38 52 / 0.55);
+  --wf-shadow-sm: 0 1px 2px rgb(35 38 52 / 0.4);
+  color-scheme: dark;
+
+  --wf-red: #e78284;
+  --wf-red-soft: #514251;
+  --wf-orange: #ef9f76;
+  --wf-orange-soft: #52474f;
+  --wf-amber: #eab483;
+  --wf-amber-soft: #514b51;
+  --wf-yellow: #e5c890;
+  --wf-yellow-soft: #514f53;
+  --wf-lime: #c6cd8d;
+  --wf-lime-soft: #4b5053;
+  --wf-green: #a6d189;
+  --wf-green-soft: #455052;
+  --wf-teal: #81c8be;
+  --wf-teal-soft: #3f4f5c;
+  --wf-cyan: #99d1db;
+  --wf-cyan-soft: #435061;
+  --wf-blue: #8caaee;
+  --wf-blue-soft: #414964;
+  --wf-indigo: #babbf1;
+  --wf-indigo-soft: #494c65;
+  --wf-violet: #ca9ee6;
+  --wf-violet-soft: #4c4763;
+  --wf-pink: #f4b8e4;
+  --wf-pink-soft: #534c62;
+}
+
+/* Catppuccin Macchiato (dark) */
+[data-theme='macchiato'] {
+  --wf-bg: #1e2030;
+  --wf-surface: #24273a;
+  --wf-surface-2: #363a4f;
+  --wf-surface-3: #494d64;
+  --wf-line: #494d64;
+  --wf-line-strong: #5b6078;
+  --wf-fg: #cad3f5;
+  --wf-fg-2: #b8c0e0;
+  --wf-fg-3: #9da4c2;
+  --wf-accent: #c6a0f6;
+  --wf-accent-hover: #d1b3f8;
+  --wf-accent-fg: #181926;
+  --wf-accent-soft: #4b4467;
+  --wf-accent-text: #cba8f7;
+  --wf-ok: #a6da95;
+  --wf-ok-soft: #3e4b4c;
+  --wf-ok-text: #a6da95;
+  --wf-warn: #eed49f;
+  --wf-warn-soft: #4c4a4e;
+  --wf-warn-text: #eed49f;
+  --wf-bad: #ed8796;
+  --wf-bad-soft: #4c3a4c;
+  --wf-bad-text: #ee919e;
+  --wf-overlay: rgb(24 25 38 / 0.62);
+  --wf-shadow: 0 1px 2px rgb(24 25 38 / 0.4), 0 8px 28px -4px rgb(24 25 38 / 0.55);
+  --wf-shadow-sm: 0 1px 2px rgb(24 25 38 / 0.4);
+  color-scheme: dark;
+
+  --wf-red: #ed8796;
+  --wf-red-soft: #48384b;
+  --wf-orange: #f5a97f;
+  --wf-orange-soft: #4a3e46;
+  --wf-amber: #f2bf8f;
+  --wf-amber-soft: #494249;
+  --wf-yellow: #eed49f;
+  --wf-yellow-soft: #48464c;
+  --wf-lime: #cad79a;
+  --wf-lime-soft: #42474b;
+  --wf-green: #a6da95;
+  --wf-green-soft: #3b474a;
+  --wf-teal: #8bd5ca;
+  --wf-teal-soft: #374654;
+  --wf-cyan: #91d7e3;
+  --wf-cyan-soft: #384758;
+  --wf-blue: #8aadf4;
+  --wf-blue-soft: #363f5b;
+  --wf-indigo: #b7bdf8;
+  --wf-indigo-soft: #3e425c;
+  --wf-violet: #c6a0f6;
+  --wf-violet-soft: #413d5c;
+  --wf-pink: #f5bde6;
+  --wf-pink-soft: #4a4259;
+}
+
+/* Catppuccin Mocha (dark) */
+[data-theme='mocha'] {
+  --wf-bg: #181825;
+  --wf-surface: #1e1e2e;
+  --wf-surface-2: #313244;
+  --wf-surface-3: #45475a;
+  --wf-line: #45475a;
+  --wf-line-strong: #585b70;
+  --wf-fg: #cdd6f4;
+  --wf-fg-2: #bac2de;
+  --wf-fg-3: #949ab3;
+  --wf-accent: #cba6f7;
+  --wf-accent-hover: #d5b8f9;
+  --wf-accent-fg: #11111b;
+  --wf-accent-soft: #483f5e;
+  --wf-accent-text: #cba6f7;
+  --wf-ok: #a6e3a1;
+  --wf-ok-soft: #394545;
+  --wf-ok-text: #a6e3a1;
+  --wf-warn: #f9e2af;
+  --wf-warn-soft: #4a4548;
+  --wf-warn-text: #f9e2af;
+  --wf-bad: #f38ba8;
+  --wf-bad-soft: #493446;
+  --wf-bad-text: #f38ba8;
+  --wf-overlay: rgb(17 17 27 / 0.62);
+  --wf-shadow: 0 1px 2px rgb(17 17 27 / 0.4), 0 8px 28px -4px rgb(17 17 27 / 0.55);
+  --wf-shadow-sm: 0 1px 2px rgb(17 17 27 / 0.4);
+  color-scheme: dark;
+
+  --wf-red: #f38ba8;
+  --wf-red-soft: #443244;
+  --wf-orange: #fab387;
+  --wf-orange-soft: #46393e;
+  --wf-amber: #facb9b;
+  --wf-amber-soft: #463d42;
+  --wf-yellow: #f9e2af;
+  --wf-yellow-soft: #454145;
+  --wf-lime: #d0e3a8;
+  --wf-lime-soft: #3e4144;
+  --wf-green: #a6e3a1;
+  --wf-green-soft: #364143;
+  --wf-teal: #94e2d5;
+  --wf-teal-soft: #33414c;
+  --wf-cyan: #89dceb;
+  --wf-cyan-soft: #314050;
+  --wf-blue: #89b4fa;
+  --wf-blue-soft: #313953;
+  --wf-indigo: #b4befe;
+  --wf-indigo-soft: #393b53;
+  --wf-violet: #cba6f7;
+  --wf-violet-soft: #3d3652;
+  --wf-pink: #f5c2e7;
+  --wf-pink-soft: #453c4f;
+}
+
+/* Adventure Time (dark): iTerm2-Color-Schemes "Adventure Time" (bg #1f1d45, fg #f8dcc0) */
+[data-theme='adventure-time'] {
+  --wf-bg: #1f1d45;
+  --wf-surface: #2c284c;
+  --wf-surface-2: #353051;
+  --wf-surface-3: #403a57;
+  --wf-line: #443d5a;
+  --wf-line-strong: #1c5a86;
+  --wf-fg: #f8dcc0;
+  --wf-fg-2: #cdb6a7;
+  --wf-fg-3: #ac9994;
+  --wf-accent: #1997c6;
+  --wf-accent-hover: #47acd1;
+  --wf-accent-fg: #050404;
+  --wf-accent-soft: #27476e;
+  --wf-accent-text: #68c4db;
+  --wf-ok: #4ab118;
+  --wf-ok-soft: #435353;
+  --wf-ok-text: #9eff6e;
+  --wf-warn: #efc11a;
+  --wf-warn-soft: #534742;
+  --wf-warn-text: #efc11a;
+  --wf-bad: #fc5f5a;
+  --wf-bad-soft: #56334f;
+  --wf-bad-text: #fd8985;
+  --wf-overlay: rgb(8 7 42 / 0.62);
+  --wf-shadow: 0 1px 2px rgb(5 4 4 / 0.4), 0 8px 28px -4px rgb(5 4 4 / 0.6);
+  --wf-shadow-sm: 0 1px 2px rgb(5 4 4 / 0.4);
+  color-scheme: dark;
+
+  --wf-red: #fc5f5a;
+  --wf-red-soft: #51324f;
+  --wf-orange: #e7741e;
+  --wf-orange-soft: #4e3644;
+  --wf-amber: #eb9b1c;
+  --wf-amber-soft: #4e3d43;
+  --wf-yellow: #efc11a;
+  --wf-yellow-soft: #4f4443;
+  --wf-lime: #9eff6e;
+  --wf-lime-soft: #414f52;
+  --wf-green: #4ab118;
+  --wf-green-soft: #314143;
+  --wf-teal: #70a598;
+  --wf-teal-soft: #383f5a;
+  --wf-cyan: #1997c6;
+  --wf-cyan-soft: #293c62;
+  --wf-blue: #5b8cf0;
+  --wf-blue-soft: #343a6a;
+  --wf-indigo: #8f82d6;
+  --wf-indigo-soft: #3e3865;
+  --wf-violet: #b48cf0;
+  --wf-violet-soft: #443a6a;
+  --wf-pink: #f276b0;
+  --wf-pink-soft: #50365e;
 }
 
 :root {

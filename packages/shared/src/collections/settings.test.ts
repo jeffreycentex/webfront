@@ -69,12 +69,36 @@ describe('resolveDashboardSections', () => {
     });
   });
 
+  it('places a section missing from an old saved order after its default predecessor', () => {
+    const ws = [
+      { id: 'bookmarks', title: 'Bookmarks', order: 10 },
+      { id: 'agenda', title: 'Today', order: 40 },
+      { id: 'tasks', title: 'Tasks', order: 45 },
+      { id: 'shopping', title: 'Shopping list', order: 50 },
+      { id: 'wiki', title: 'Wiki', order: 60 },
+    ];
+    const r = resolveDashboardSections(ws, [
+      { id: 'search', hidden: false },
+      { id: 'wiki', hidden: false },
+      { id: 'bookmarks', hidden: true },
+      { id: 'agenda', hidden: false },
+      { id: 'shopping', hidden: false },
+    ]);
+    expect(r.sections.map((s) => [s.id, s.hidden])).toEqual([
+      ['wiki', false],
+      ['bookmarks', true],
+      ['agenda', false],
+      ['tasks', false],
+      ['shopping', false],
+    ]);
+  });
+
   it('ignores duplicate ids', () => {
     const r = resolveDashboardSections(widgets, [
       { id: 'agenda', hidden: false },
       { id: 'agenda', hidden: true },
     ]);
-    expect(r.sections.map((s) => s.id)).toEqual(['agenda', 'bookmarks', 'wiki']);
-    expect(r.sections[0]!.hidden).toBe(false);
+    expect(r.sections.map((s) => s.id)).toEqual(['bookmarks', 'agenda', 'wiki']);
+    expect(r.sections.find((s) => s.id === 'agenda')!.hidden).toBe(false);
   });
 });

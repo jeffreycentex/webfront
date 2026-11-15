@@ -5,7 +5,7 @@ import {
   type ColourKey,
 } from '@webfront/shared';
 import { ArrowDown, ArrowUp } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useCollection } from '@/data';
 import { useFeatures } from '../context';
 import {
@@ -18,12 +18,14 @@ import {
   useTheme,
   type ThemePreference,
 } from '@/ui';
+import { THEMES, type ThemeDef, type ThemeId } from '../../lib/theme';
 import { useSetting } from './useSetting';
 import { safeGet, safeSet } from './deviceStorage';
 
 export default function AppearanceSection() {
   return (
     <div className="flex flex-col gap-4 text-sm">
+      <ThemePicker />
       <DeviceChoices />
       <SectionsEditor />
       <TagColours />
@@ -31,8 +33,123 @@ export default function AppearanceSection() {
   );
 }
 
-function DeviceChoices() {
+/** Swatch card grid (radio group) plus the light / dark themes used when following the system. */
+function ThemePicker() {
   const theme = useTheme();
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const options: { value: ThemePreference; def?: ThemeDef }[] = [
+    ...THEMES.map((def) => ({ value: def.id as ThemePreference, def })),
+    { value: 'system' },
+  ];
+  const selected = Math.max(
+    0,
+    options.findIndex((o) => o.value === theme.preference),
+  );
+  const onKey = (e: KeyboardEvent, i: number) => {
+    const step =
+      e.key === 'ArrowRight' || e.key === 'ArrowDown'
+        ? 1
+        : e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+          ? -1
+          : 0;
+    const to = e.key === 'Home' ? 0 : e.key === 'End' ? options.length - 1 : i + step;
+    if (!step && e.key !== 'Home' && e.key !== 'End') return;
+    e.preventDefault();
+    const n = (to + options.length) % options.length;
+    theme.setPreference(options[n]!.value);
+    refs.current[n]?.focus();
+  };
+  const pick = (mode: 'light' | 'dark') => THEMES.filter((t) => t.mode === mode);
+  return (
+    <div>
+      <h3 className="label-caps mb-1 text-fg-3" id="theme-picker-label">
+        Theme
+      </h3>
+      <div
+        role="radiogroup"
+        aria-labelledby="theme-picker-label"
+        className="grid max-w-xl grid-cols-2 gap-2 sm:grid-cols-4"
+      >
+        {options.map((o, i) => {
+          const on = i === selected;
+          const name = o.def?.name ?? 'Match system';
+          return (
+            <button
+              key={o.value}
+              ref={(el) => {
+                refs.current[i] = el;
+              }}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              tabIndex={on ? 0 : -1}
+              onClick={() => theme.setPreference(o.value)}
+              onKeyDown={(e) => onKey(e, i)}
+              className={cx(
+                'flex min-h-[var(--row-h)] flex-col gap-1 rounded-md border bg-surface p-1.5 text-left text-xs',
+                on ? 'border-accent ring-1 ring-accent' : 'border-line hover:border-line-strong',
+              )}
+            >
+              <span
+                aria-hidden
+                className="flex h-5 items-center gap-1 rounded-sm border border-line px-1"
+                style={
+                  o.def
+                    ? { background: o.def.chrome }
+                    : {
+                        background: `linear-gradient(90deg, ${THEMES[0].chrome} 50%, ${THEMES[1].chrome} 50%)`,
+                      }
+                }
+              >
+                {(o.def
+                  ? o.def.swatch
+                  : [...THEMES[0].swatch.slice(0, 2), ...THEMES[1].swatch.slice(1, 3)]
+                ).map((c, k) => (
+                  <span key={k} className="size-2.5 rounded-full" style={{ background: c }} />
+                ))}
+              </span>
+              <span className={cx('font-medium', on ? 'text-fg' : 'text-fg-2')}>{name}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-2 grid max-w-xl grid-cols-1 gap-2 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-xs font-medium text-fg-2">
+          When the system is light
+          <Select
+            value={theme.systemLight}
+            onChange={(e) => theme.setSystemLight(e.target.value as ThemeId)}
+          >
+            {pick('light').map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-medium text-fg-2">
+          When the system is dark
+          <Select
+            value={theme.systemDark}
+            onChange={(e) => theme.setSystemDark(e.target.value as ThemeId)}
+          >
+            {pick('dark').map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <p className="text-xs text-fg-3 sm:col-span-2">
+          These apply when the theme is Match system, so you can pair a light theme by day with a
+          dark one at night.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function DeviceChoices() {
   const [sidebar, setSidebar] = useState(() =>
     safeGet('wf.sidebar') === 'collapsed' ? 'collapsed' : 'expanded',
   );
@@ -40,18 +157,7 @@ function DeviceChoices() {
     safeGet('wf.density') === 'comfortable' ? 'comfortable' : 'compact',
   );
   return (
-    <div className="grid max-w-xl grid-cols-1 gap-2 sm:grid-cols-3">
-      <label className="flex flex-col gap-1 text-xs font-medium text-fg-2">
-        Theme
-        <Select
-          value={theme.preference}
-          onChange={(e) => theme.setPreference(e.target.value as ThemePreference)}
-        >
-          <option value="system">Match system</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </Select>
-      </label>
+    <div className="grid max-w-xl grid-cols-1 gap-2 sm:grid-cols-2">
       <label className="flex flex-col gap-1 text-xs font-medium text-fg-2">
         Sidebar
         <Select
@@ -79,8 +185,9 @@ function DeviceChoices() {
           <option value="comfortable">Comfortable</option>
         </Select>
       </label>
-      <p className="text-xs text-fg-3 sm:col-span-3">
-        These three are remembered on this device only. Week start is on the Calendar page.
+      <p className="text-xs text-fg-3 sm:col-span-2">
+        Theme, sidebar and density are remembered on this device only. Week start is on the Calendar
+        page.
       </p>
     </div>
   );

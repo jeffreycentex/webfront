@@ -191,7 +191,7 @@ describe('DashboardPage', () => {
       { id: 'dashboard.sections' },
     );
     renderPage();
-    await waitFor(() => expect(order()).toEqual(['wiki', 'bookmarks', 'agenda']));
+    await waitFor(() => expect(order()).toEqual(['wiki', 'agenda', 'bookmarks']));
     expect(screen.queryByText('widget postits')).toBeNull();
   });
 });

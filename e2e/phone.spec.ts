@@ -36,6 +36,11 @@ test('shopping quick add is reachable and adds with one tap', async ({ page }) =
     .getByRole('navigation', { name: 'Main' })
     .getByRole('link', { name: 'Shopping' })
     .tap();
+  // Routes are lazy: wait until the Shopping page has replaced the dashboard, whose
+  // shopping widget has an "Add item" box of its own that would otherwise match and vanish.
+  await expect(
+    page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Shopping' }),
+  ).toHaveAttribute('aria-current', 'page');
 
   const first = page.getByRole('button', { name: 'Create your first list' });
   const add = page.getByRole('combobox', { name: 'Add item' }).first();

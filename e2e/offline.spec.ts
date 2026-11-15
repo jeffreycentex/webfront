@@ -63,7 +63,6 @@ test('the app shell and local data load without the server; edits sync later', a
     .toBe(true);
 
   guard.assertClean();
-  await context.close();
 });
 
 test('API responses are never served from the service worker cache except images', async ({

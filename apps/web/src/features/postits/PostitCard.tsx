@@ -6,8 +6,26 @@ import { colourStyle, ColourDot, ColourPicker, cx, IconButton, Popover, useToast
 import { writeLastColour, type Postit } from './order';
 import { firstLine, linkify } from './text';
 
-/** Note text with auto-linked URLs and preserved line breaks, rendered as React nodes only. */
+/**
+ * Note text with auto-linked URLs and preserved line breaks, rendered as React nodes only.
+ * When a note has more than one line, its first line is shown in bold as the title.
+ */
 export function NoteText({ text }: { text: string }) {
+  const breakAt = text.indexOf('\n');
+  const hasTitle =
+    breakAt > 0 && text.slice(0, breakAt).trim() !== '' && text.slice(breakAt + 1).trim() !== '';
+  if (!hasTitle) return <Linked text={text} />;
+  return (
+    <>
+      <strong data-postit-title className="font-semibold">
+        <Linked text={text.slice(0, breakAt)} />
+      </strong>
+      <Linked text={text.slice(breakAt)} />
+    </>
+  );
+}
+
+function Linked({ text }: { text: string }) {
   return (
     <>
       {linkify(text).map((s, i) =>

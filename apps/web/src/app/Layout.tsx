@@ -121,18 +121,12 @@ export function Layout() {
         keywords: ['help', 'keys', 'cheat sheet'],
         run: () => setShortcutsOpen(true),
       },
-      {
-        id: 'shell.theme.light',
-        title: 'Theme: Light',
-        keywords: ['appearance', 'colour'],
-        run: () => theme.setPreference('light'),
-      },
-      {
-        id: 'shell.theme.dark',
-        title: 'Theme: Dark',
-        keywords: ['appearance', 'night'],
-        run: () => theme.setPreference('dark'),
-      },
+      ...theme.themes.map((t) => ({
+        id: `shell.theme.${t.id}`,
+        title: `Theme: ${t.name}`,
+        keywords: ['appearance', 'colour', t.mode === 'dark' ? 'night' : 'day', 'catppuccin'],
+        run: () => theme.setPreference(t.id as ThemePreference),
+      })),
       {
         id: 'shell.theme.system',
         title: 'Theme: Match system',
@@ -375,28 +369,33 @@ function Header({
   );
 }
 
-const THEME_ICON: Record<ThemePreference, ReactNode> = {
-  light: <Sun />,
-  dark: <Moon />,
-  system: <Monitor />,
-};
-
 function ThemeMenu() {
-  const { preference, setPreference } = useTheme();
+  const { preference, resolved, themes, setPreference } = useTheme();
   const item = (value: ThemePreference, label: string, icon: ReactNode): MenuItem => ({
     label,
     icon,
     checked: preference === value,
     onSelect: () => setPreference(value),
   });
+  const label =
+    preference === 'system'
+      ? 'System'
+      : (themes.find((t) => t.id === preference)?.name ?? preference);
   return (
     <DropdownMenu
       label="Theme"
       placement="bottom-end"
-      trigger={<IconButton label={`Theme: ${preference}`} icon={THEME_ICON[preference]} />}
+      trigger={
+        <IconButton
+          label={`Theme: ${label}`}
+          icon={preference === 'system' ? <Monitor /> : resolved === 'dark' ? <Moon /> : <Sun />}
+        />
+      }
       items={[
-        item('light', 'Light', <Sun />),
-        item('dark', 'Dark', <Moon />),
+        ...themes.map((t) =>
+          item(t.id as ThemePreference, t.name, t.mode === 'dark' ? <Moon /> : <Sun />),
+        ),
+        'separator',
         item('system', 'System', <Monitor />),
       ]}
     />

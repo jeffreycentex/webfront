@@ -96,8 +96,8 @@ test('offline edits on one device and concurrent edits on another converge', asy
 }) => {
   test.setTimeout(240_000);
   const s = uid();
-  const a = await newDevice(browser);
-  const b = await newDevice(browser);
+  const a = await newDevice(browser, undefined, 'A');
+  const b = await newDevice(browser, undefined, 'B');
 
   const names = {
     bookmark: `Shared BM ${s}`,
@@ -165,6 +165,11 @@ test('offline edits on one device and concurrent edits on another converge', asy
   await openWikiPage(a.page, names.wiki);
   await a.page.getByRole('button', { name: 'Edit', exact: true }).click();
   await setWikiBody(a.page, 'Alpha paragraph edited on A.\n\nBeta paragraph.');
+  // The offline edit is stored on A (the reading view renders the stored body).
+  await a.page.getByRole('button', { name: 'Read', exact: true }).click();
+  await expect(
+    a.page.locator('.wf-markdown').getByText('Alpha paragraph edited on A.'),
+  ).toBeVisible();
 
   /* ---- 3. meanwhile B edits other fields of the same records ---- */
   await goTo(b.page, 'Bookmarks');
@@ -190,6 +195,15 @@ test('offline edits on one device and concurrent edits on another converge', asy
   const sheet = b.page.getByRole('dialog', { name: 'Edit item' });
   await sheet.getByLabel('Quantity').fill('3');
   await sheet.getByRole('button', { name: 'Save' }).click();
+  // The sheet closes before its IndexedDB write commits. The next step is a full page load,
+  // which aborts an uncommitted transaction (round 4 lost exactly this edit: the server never
+  // saw a quantity stamp from B, and B showed "Synced" with nothing pending). Wait until the
+  // list (a live query on IndexedDB) shows the stored value, and until it is uploaded.
+  await expect(sheet).toBeHidden();
+  await expect(
+    listB.getByRole('checkbox', { name: new RegExp(`^${names.item} 3$`) }),
+  ).toBeVisible();
+  await waitSynced(b.page);
 
   await b.page.goto(wikiPath);
   await b.page.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -255,10 +269,14 @@ test('offline edits on one device and concurrent edits on another converge', asy
   /* ---- 5. overlapping wiki edits: conflict on both, resolved once, converges ---- */
   await a.context.setOffline(true);
   await a.page.getByRole('button', { name: 'Edit', exact: true }).click();
-  await setWikiBody(a.page, 'Alpha rewritten on A.\n\nBeta paragraph edited on B.');
+  // Truly overlapping: both replace the same words with different ones. (Round 5 used
+  // "Alpha rewritten on A." / "Alpha rewritten on B.": B's text contains A's whole change plus
+  // one more word, so word-level diff3 correctly merged it cleanly to B's text; see the
+  // "word-level diff3" unit test in apps/web/src/features/wiki/lib/bodySync.test.ts.)
+  await setWikiBody(a.page, 'Alpha xylophone.\n\nBeta paragraph edited on B.');
 
   await b.page.getByRole('button', { name: 'Edit', exact: true }).click();
-  await setWikiBody(b.page, 'Alpha rewritten on B.\n\nBeta paragraph edited on B.');
+  await setWikiBody(b.page, 'Alpha zeppelin.\n\nBeta paragraph edited on B.');
   await waitSynced(b.page);
 
   await a.context.setOffline(false);
@@ -290,11 +308,9 @@ test('offline edits on one device and concurrent edits on another converge', asy
     }),
   );
   expect(bodyA).toBe(bodyB);
-  expect(bodyA).toMatch(/Alpha rewritten on (A|B)\./);
+  expect(bodyA).toMatch(/Alpha (xylophone|zeppelin)\./);
   expect(bodyA).toContain('Beta paragraph edited on B.');
 
   a.guard.assertClean();
   b.guard.assertClean();
-  await a.context.close();
-  await b.context.close();
 });

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { clearLocalData, put, reader } from '@/data';
 import { ToastProvider } from '@/ui';
 import { MemoryRouter } from 'react-router';
+import { NoteText } from './PostitCard';
 import { PostitsPage } from './PostitsPage';
 import { postitsSearchProvider } from './search';
 
@@ -82,5 +83,22 @@ describe('search provider', () => {
     expect(res).toHaveLength(1);
     expect(res[0]).toMatchObject({ id: a.id, href: `/postits?focus=${a.id}` });
     expect(await postitsSearchProvider.search('', 5)).toEqual([]);
+  });
+});
+
+describe('note text', () => {
+  const title = (text: string) => {
+    const { container } = render(<NoteText text={text} />);
+    return container.querySelector('[data-postit-title]')?.textContent ?? null;
+  };
+
+  it('shows the first line of a multi-line note as its title', () => {
+    expect(title('Plumber\nCall before Friday')).toBe('Plumber');
+  });
+
+  it('gives one-line notes, and notes with only blank lines after, no title', () => {
+    expect(title('Just one line')).toBeNull();
+    expect(title('Trailing break\n\n')).toBeNull();
+    expect(title('\nStarts with a blank line')).toBeNull();
   });
 });

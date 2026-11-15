@@ -156,6 +156,67 @@ describe('wiki body merge over the sync engine', () => {
     });
   }
 
+  it('e2e order: B (online, newer) pushes first, A reconnects later and its push loses the stamp', async () => {
+    const { s, a, b, id } = await setup(BASE);
+    a.c.online = false;
+    await edit(a, id, BASE.replace('alpha', 'ALPHA (from A)'));
+    b.c.now += 5_000;
+    await edit(b, id, BASE.replace('epsilon', 'EPSILON (from B)'));
+    await sync(b.c);
+    expect(s.ctx.records.get('wikiPages', id)!.body).toContain('EPSILON (from B)');
+    a.c.online = true;
+    a.c.now = b.c.now + 1_000;
+    await settle(a, b);
+    const merged = await expectConverged(s, a, b, id);
+    expect(merged.body).toBe(
+      L('# Title', '', 'ALPHA (from A)', 'beta', 'gamma', 'delta', 'EPSILON (from B)'),
+    );
+  });
+
+  it('e2e round 2: after a clean merge, overlapping offline edits conflict on both replicas', async () => {
+    const X = L('Alpha paragraph.', '', 'Beta paragraph.');
+    const { s, a, b, id } = await setup(X);
+    // Round 1: non-overlapping, B pushes first, A reconnects later (merges cleanly).
+    a.c.online = false;
+    await edit(a, id, X.replace('Alpha paragraph.', 'Alpha paragraph edited on A.'));
+    b.c.now += 5_000;
+    await edit(b, id, X.replace('Beta paragraph.', 'Beta paragraph edited on B.'));
+    await sync(b.c);
+    a.c.online = true;
+    a.c.now = b.c.now + 1_000;
+    await settle(a, b);
+    const m = await expectConverged(s, a, b, id);
+    expect(m.body).toBe(L('Alpha paragraph edited on A.', '', 'Beta paragraph edited on B.'));
+    // Round 2: both rewrite the same words differently, same order of events.
+    const textA = m.body.replace('Alpha paragraph edited on A.', 'Alpha xylophone.');
+    const textB = m.body.replace('Alpha paragraph edited on A.', 'Alpha zeppelin.');
+    a.c.online = false;
+    a.c.now += 1_000;
+    await edit(a, id, textA);
+    b.c.now = a.c.now + 2_000;
+    await edit(b, id, textB);
+    await sync(b.c);
+    a.c.online = true;
+    a.c.now = b.c.now + 1_000;
+    await settle(a, b);
+    const r = await expectConverged(s, a, b, id);
+    expect(r.conflict).not.toBeNull();
+    expect([r.body, r.conflict!.body].sort()).toEqual([textA, textB].sort());
+  });
+
+  it('word-level diff3: a rewrite that the other side also made, plus one more change, is not a conflict', () => {
+    // Round 5 of the e2e suite used these texts and expected a conflict: B's text contains A's
+    // whole change ("paragraph edited" -> "rewritten") plus its own ("A" -> "B"), so the clean
+    // merge is B's text and nothing of A's is lost.
+    const M = L('Alpha paragraph edited on A.', '', 'Beta.');
+    const A = L('Alpha rewritten on A.', '', 'Beta.');
+    const B = L('Alpha rewritten on B.', '', 'Beta.');
+    const state = { ...acceptedState(M, T0), own: true, head: A };
+    expect(decideBody(state, A, { body: B, bodyBase: hashText(M), conflictBody: null })).toEqual({
+      kind: 'accept',
+    });
+  });
+
   it('the record resolver merges when a pull meets a pending edit', async () => {
     const { s, a, b, id } = await setup(BASE);
     await edit(a, id, BASE.replace('beta', 'BETA (A)'));

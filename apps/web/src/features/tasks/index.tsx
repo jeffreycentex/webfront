@@ -1,8 +1,11 @@
 import { ListTodo } from 'lucide-react';
+import { lazy } from 'react';
 import { defineFeature } from '../types';
 import { commands } from './commands';
 import { tasksSearchProvider } from './search';
 import { useDueBadge } from './useDueBadge';
+
+const TasksWidget = lazy(() => import('./TasksWidget'));
 
 /**
  * Feature: tasks — owner: Task 6. The route is lazy; everything heavy lives in TasksPage.
@@ -28,6 +31,7 @@ export default defineFeature({
     phoneOrder: 2,
     useBadge: useDueBadge,
   },
+  dashboardWidgets: [{ id: 'tasks', title: 'Tasks', order: 45, component: TasksWidget }],
   searchProvider: tasksSearchProvider,
   commands,
 });
