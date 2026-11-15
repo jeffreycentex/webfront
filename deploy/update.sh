@@ -82,8 +82,10 @@ fi
 
 (
   cd "$REL"
+  # --include=dev: the env file sets NODE_ENV=production, which would otherwise make npm
+  # skip the build tools (tsc, vite).
   log "npm ci"
-  npm ci --no-audit --no-fund
+  npm ci --include=dev --no-audit --no-fund
   log "npm run build"
   npm run build
   [ -f apps/server/dist/index.js ] || { echo "build output missing" >&2; exit 1; }

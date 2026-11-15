@@ -140,11 +140,11 @@ fi
 build_release() {
   cd "$REL"
   log "npm ci (this can take a few minutes)"
-  if ! npm ci --no-audit --no-fund; then
+  if ! npm ci --include=dev --no-audit --no-fund; then
     warn "npm ci failed; installing build tools for native modules and retrying"
     apt-get install -y -qq --no-install-recommends build-essential python3 >/dev/null
     rm -rf node_modules
-    npm ci --no-audit --no-fund
+    npm ci --include=dev --no-audit --no-fund
   fi
   log "npm run build"
   npm run build
